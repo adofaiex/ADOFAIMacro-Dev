@@ -633,38 +633,56 @@ namespace BaseMacro
         {
             return GUILayout.SelectionGrid(selected, texts, xCount, _selectionGridStyle, options);
         }
+        private static int _textFieldCounter = 0;
 
-        public static string M3TextField(string value, ref string input, ref bool focused, GUIStyle style, params GUILayoutOption[] options)
+        public static string M3TextField(string value, ref string input, ref bool focused, GUIStyle style, string controlName, params GUILayoutOption[] options)
         {
+            // 如果没有提供控件名称，自动生成一个（但尽量由调用者传入稳定名称）
+            if (string.IsNullOrEmpty(controlName))
+            {
+                controlName = "M3TextField_" + (_textFieldCounter++);
+            }
+
             if (focused)
             {
-                string newValue = GUILayout.TextField(input, style, options);
-                if (newValue != input)
+                // 设置控件名称，以便后续检测焦点
+                GUI.SetNextControlName(controlName);
+                string newInput = GUILayout.TextField(input, style, options);
+
+                // 如果输入发生变化，更新 input
+                if (newInput != input)
                 {
-                    input = newValue;
+                    input = newInput;
                 }
 
-                // 当失去焦点时更新实际值
-                if (Event.current.type == EventType.MouseDown && !GUILayoutUtility.GetLastRect().Contains(Event.current.mousePosition))
+                // 检查是否失去焦点（焦点已移到其他控件）
+                if (GUI.GetNameOfFocusedControl() != controlName)
                 {
                     focused = false;
-                    value = input;
+                    value = input; // 提交编辑后的值
+                    return value;
                 }
 
-                return value;
+                // 仍处于焦点状态，返回当前编辑的内容
+                return input;
             }
             else
             {
+                // 非焦点状态：显示 value，并检查是否获得焦点
+                GUI.SetNextControlName(controlName);
                 string newValue = GUILayout.TextField(value, style, options);
-                if (newValue != value)
+
+                // 如果当前焦点落在此控件上，则进入编辑模式
+                if (GUI.GetNameOfFocusedControl() == controlName)
                 {
-                    // 开始编辑
                     focused = true;
-                    input = newValue;
+                    input = newValue; // 将当前内容同步到 input
+                    return input;
                 }
+
+                // 没有获得焦点，直接返回当前显示的值（可能被外部修改，但应与传入的 value 一致）
                 return newValue;
             }
         }
-
     }
 }

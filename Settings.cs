@@ -2,6 +2,7 @@
 using Newgrounds;
 using System;
 using System.Collections.Generic;
+using System.Linq;
 using System.Reflection;
 using UnityEngine;
 using UnityModManagerNet;
@@ -192,6 +193,40 @@ namespace BaseMacro
         public bool ChangeJudementInPlay = false;
         public bool LockLevelEditor = false;
 
+        // ─────────────────────────────────────────────
+        //  手法模拟设置
+        // ─────────────────────────────────────────────
+        private bool _enableTechSim = false;
+        public bool EnableTechniqueSimulation
+        {
+            get => _enableTechSim;
+            set { if (_enableTechSim == value) return; _enableTechSim = value; }
+        }
+
+        private float _techniqueBpmLimit = 500f;
+        public float TechniqueBpmLimit
+        {
+            get => _techniqueBpmLimit;
+            set => _techniqueBpmLimit = Mathf.Clamp(value, 50f, 2000f);
+        }
+
+        // 左右手按键列表，逗号分隔，例 "D,F"
+        public string TechLeftHandKeys = "D,F";
+        public string TechRightHandKeys = "J,K";
+
+        // 按键顺序表：用 | 分隔不同按键数的方案，逗号分隔每方案内的按键序号(1-based)
+        // 例："1|2,1|1,2,3" 表示：1键→第1键；2键→第2键再第1键；3键→第1,2,3键
+        // 留空 = 默认顺序
+        public string TechLeftHandOrders = "";
+        public string TechRightHandOrders = "";
+
+        // 每个按键的按下时长比例(0.05~1.0)，逗号分隔
+        public string TechLeftHandPressTimes = "0.8,0.8";
+        public string TechRightHandPressTimes = "0.8,0.8";
+
+        // UI 状态（内部使用）
+        private (string input, bool focused) _techBpmState = (string.Empty, false);
+
         private (string input, bool focused) _deathKeyDelayState = (string.Empty, false);
 
         private static readonly Dictionary<string, int> KeyCodeMap = new(StringComparer.OrdinalIgnoreCase)
@@ -278,77 +313,66 @@ namespace BaseMacro
         private (string input, bool focused) _filteredAsyncKeysState = (string.Empty, false);
         public bool HighPrecisionTime;
 
+        private int selectedCardIndex = 0;
+
+        // 重构后的 OnGUI 方法
         public void OnGUI(UnityModManager.ModEntry modEntry)
         {
             UIUtils.InitializeStyles();
 
-            // 创建两列布局
-            GUILayout.BeginHorizontal();
+            // 构建卡片列表（名称 + 绘制委托）
+            var cards = new List<(string name, Action draw)>();
 
-            // 左侧列
-            GUILayout.BeginVertical(GUILayout.Width(425));
-
-            DrawLanguageCard();
-
-            GUILayout.Space(12);
-
-            DrawMainSwitchCard();
+            // 语言卡
+            cards.Add((UseChinese ? "语言" : "Language", DrawLanguageCard));
+            // 主开关卡
+            cards.Add((UseChinese ? "宏" : "Macro", DrawMainSwitchCard));
 
             if (Macro)
             {
-                GUILayout.Space(12);
-                DrawKeySettingsCard();
+                // 按键设置卡
+                cards.Add((UseChinese ? "按键设置" : "Key Settings", DrawKeySettingsCard));
+                // 按键过滤卡
+                cards.Add((UseChinese ? "按键过滤" : "Key Filter", DrawKeyFilterCard));
+                // 延迟设置卡
+                cards.Add((UseChinese ? "延迟设置" : "Offset Settings", DrawOffsetSettingsCard));
+                // 其他设置卡
+                cards.Add((UseChinese ? "其他选项" : "Other Settings", DrawOtherSettingsCard));
+
+                if (SimulateKeyPress)
+                {
+                    // 手法模拟卡
+                    cards.Add((UseChinese ? "手法模拟" : "Technique Simulation", DrawTechniqueSimCard));
+                }
             }
 
-            if (Macro)
-            {
-                GUILayout.Space(12);
-                DrawKeyFilterCard();
-            }
+            // 更新日志卡
+            cards.Add((UseChinese ? "更新日志" : "Update Log", DrawUpdateLogCard));
+            // 作者卡
+            cards.Add((UseChinese ? "作者" : "Author", DrawAuthorCard));
 
-            GUILayout.EndVertical();
-
-            GUILayout.Space(12);
-            // 右侧列
-            GUILayout.BeginVertical(GUILayout.Width(400));
-
-            // 延迟设置卡片
-            if (Macro)
-            {
-                DrawOffsetSettingsCard();
-            }
-            else
-            {
-                // 如果 Macro 未开启，显示一个提示卡片
-                GUILayout.BeginVertical(UIUtils.CardStyle);
-                GUILayout.Label(UseChinese ? "请先启用宏" : "Please enable Macro first",
-                    UIUtils.LabelStyle);
-                GUILayout.EndVertical();
-            }
-
-            if (Macro)
-            {
-                GUILayout.Space(12);
-                DrawOtherSettingsCard();
-            }
-            GUILayout.Space(12);
-            DrawUpdateLogCard();
-
-            GUILayout.Space(12);
-            DrawAuthorCard();
-
-            // 如果是测试版，添加测试版水印卡片
             if (IsBeta)
             {
-                GUILayout.Space(12);
-                DrawBetaCard();
+                // 测试版卡
+                cards.Add((UseChinese ? "测试版" : "Beta", DrawBetaCard));
             }
 
-            GUILayout.EndVertical();
+            // 确保选中的索引有效
+            if (selectedCardIndex >= cards.Count) selectedCardIndex = 0;
 
-            GUILayout.EndHorizontal();
+            // ----- 顶部卡片选择栏（定制UI）-----
+            // 使用 Material 3 风格的 SelectionGrid 作为选项卡
+            string[] cardNames = cards.Select(c => c.name).ToArray();
+            selectedCardIndex = UIUtils.M3SelectionGrid(selectedCardIndex, cardNames, cards.Count, GUILayout.Height(30));
+
+            GUILayout.Space(10);
+
+            // ----- 当前选中的卡片内容 -----
+            if (cards.Count > 0)
+            {
+                cards[selectedCardIndex].draw();
+            }
         }
-
         private void DrawLanguageCard()
         {
             GUILayout.BeginVertical(UIUtils.CardStyle);
@@ -428,11 +452,14 @@ namespace BaseMacro
             GUILayout.Label(UseChinese ? "按键设置" : "Key Settings", UIUtils.HeaderStyle);
             GUILayout.Space(2);
 
-            GUILayout.BeginHorizontal();
-            string keysLabel = UseChinese ? "按键序列 (逗号分隔)" : "Keys (comma separated)";
-            GUILayout.Label(keysLabel, UIUtils.LabelStyle, GUILayout.Width(180));
-            MacroKeys = GUILayout.TextField(MacroKeys, UIUtils.TextFieldStyle, GUILayout.ExpandWidth(true));
-            GUILayout.EndHorizontal();
+            if (!Main.Settings.EnableTechniqueSimulation)
+            {
+                GUILayout.BeginHorizontal();
+                string keysLabel = UseChinese ? "按键序列 (逗号分隔)" : "Keys (comma separated)";
+                GUILayout.Label(keysLabel, UIUtils.LabelStyle, GUILayout.Width(180));
+                MacroKeys = GUILayout.TextField(MacroKeys, UIUtils.TextFieldStyle, GUILayout.ExpandWidth(true));
+                GUILayout.EndHorizontal();
+            }
 
             GUILayout.Space(2);
             string simulateText = UseChinese ? "按键模拟" : "Key simulation";
@@ -603,30 +630,26 @@ namespace BaseMacro
 
                 // 普通按键列表
                 GUILayout.BeginHorizontal();
-                GUILayout.Label(UseChinese ? "按键列表 (逗号分隔)" : "Keys (comma separated)", UIUtils.LabelStyle, GUILayout.Width(160));
+                GUILayout.Label(UseChinese ? "按键列表 (逗号分隔)" : "Keys (comma separated)", UIUtils.LabelStyle, GUILayout.Width(140)); // 原160 -> 140
                 string newFilteredKeys = UIUtils.M3TextField(FilteredKeys,
                     ref _filteredKeysState.input,
                     ref _filteredKeysState.focused,
                     UIUtils.TextFieldStyle,
-                    GUILayout.ExpandWidth(true),
-                    GUILayout.MaxWidth(240));
+                    "TechnicalkeysNormal");
                 if (newFilteredKeys != FilteredKeys)
                     FilteredKeys = newFilteredKeys;
                 GUILayout.EndHorizontal();
 
-                GUILayout.Space(4);
-
-                // 异步按键列表
+                // 异步按键列表同理
                 GUILayout.BeginHorizontal();
-                GUILayout.Label(UseChinese ? "异步按键列表 (逗号分隔)" : "Async Keys (comma separated)", UIUtils.LabelStyle, GUILayout.Width(160));
+                GUILayout.Label(UseChinese ? "异步按键列表 (逗号分隔)" : "Async Keys (comma separated)", UIUtils.LabelStyle, GUILayout.Width(140));
                 if (SkyHookMode)
                 {
                     string newFilteredAsyncKeys = UIUtils.M3TextField(FilteredAsyncKeys,
                         ref _filteredAsyncKeysState.input,
                         ref _filteredAsyncKeysState.focused,
                         UIUtils.TextFieldStyle,
-                    GUILayout.ExpandWidth(true),
-                    GUILayout.MaxWidth(240));
+                        "TechnicalkeysAsync"); // 固定宽度250
                     if (newFilteredAsyncKeys != FilteredAsyncKeys)
                         FilteredAsyncKeys = newFilteredAsyncKeys;
                 }
@@ -922,11 +945,157 @@ namespace BaseMacro
             string cleanTitle = Main.Mod.Info.Version.Replace('\n', ' ').Replace('\r', ' ');
             // 更新内容
             string logText = UseChinese ?
-                $"<b>版本 {cleanTitle}</b>\n• 优化 UI 布局\n• 修复若干 bug" :
-                $"<b>Version {cleanTitle}</b>\n• Improved UI layout\n• Fixed several bugs";
+                $"<b>版本 {cleanTitle}</b>\n• 优化 UI 布局\n• 修复若干 bug\n• 支持手法模拟" :
+                $"<b>Version {cleanTitle}</b>\n• Improved UI layout\n• Fixed several bugs\n• Support technique simulation";
 
             GUILayout.Label(logText, logStyle);
             GUILayout.EndScrollView();
+            GUILayout.EndVertical();
+        }
+
+        // 手法模拟输入框状态
+        private (string input, bool focused) _techLeftKeysState = (string.Empty, false);
+        private (string input, bool focused) _techRightKeysState = (string.Empty, false);
+        private (string input, bool focused) _techLeftPressTimesState = (string.Empty, false);
+        private (string input, bool focused) _techRightPressTimesState = (string.Empty, false);
+        private (string input, bool focused) _techLeftOrdersState = (string.Empty, false);
+        private (string input, bool focused) _techRightOrdersState = (string.Empty, false);
+
+        private void DrawTechniqueSimCard()
+        {
+            GUILayout.BeginVertical(UIUtils.CardStyle);
+            GUILayout.Label(UseChinese ? "手法模拟" : "Technique Simulation", UIUtils.HeaderStyle);
+            GUILayout.Space(2);
+
+            bool newEnable = UIUtils.M3Switch(EnableTechniqueSimulation,
+                UseChinese ? "启用手法模拟（左右手交替）" : "Enable Technique Simulation (L/R alternation)");
+            if (newEnable != EnableTechniqueSimulation)
+            {
+                EnableTechniqueSimulation = newEnable;
+            }
+
+            if (!EnableTechniqueSimulation) { GUILayout.EndVertical(); return; }
+
+            // 分隔线
+            GUILayout.Space(6);
+            Color orig = GUI.color;
+            GUI.color = new Color(0.5f, 0.5f, 0.5f, 0.3f);
+            GUILayout.Box("", GUILayout.Height(1), GUILayout.ExpandWidth(true));
+            GUI.color = orig;
+            GUILayout.Space(4);
+
+            // 速度阈值
+            GUILayout.BeginHorizontal();
+            TechniqueBpmLimit = UIUtils.M3HorizontalSliderWithLabelAndInput(
+                UseChinese ? "速度阈值 (BPM)" : "Speed Threshold (BPM)",
+                TechniqueBpmLimit, 50f, 2000f,
+                ref _techBpmState.input, ref _techBpmState.focused,
+                "F0", 140, 220, 70);
+            GUILayout.EndHorizontal();
+
+            GUIStyle tipStyle = new(UIUtils.LabelStyle)
+            {
+                fontSize = 10,
+                wordWrap = true,
+                normal = { textColor = new Color(0.7f, 0.7f, 0.7f, 0.8f) }
+            };
+            GUILayout.Label(UseChinese
+                ? "超过此BPM时自动细分时间片，允许同一只手连续承担多个事件"
+                : "Above this BPM, time slices are subdivided so one hand handles multiple events", tipStyle);
+
+            GUILayout.Space(8);
+
+            // 左右手按键配置
+            string[] handLabels = UseChinese ? ["左手", "右手"] : ["Left Hand", "Right Hand"];
+
+            // 左手
+            GUILayout.Label($"── {handLabels[0]} ──", UIUtils.LabelStyle);
+            GUILayout.Space(2);
+
+            // 左手按键序列
+            GUILayout.BeginHorizontal();
+            GUILayout.Label(UseChinese ? "按键序列:" : "Keys:", UIUtils.LabelStyle, GUILayout.Width(80));
+            TechLeftHandKeys = UIUtils.M3TextField(TechLeftHandKeys,
+                ref _techLeftKeysState.input,
+                ref _techLeftKeysState.focused,
+                UIUtils.TextFieldStyle,
+                "TechLeftKeys");
+            GUILayout.EndHorizontal();
+
+            // 左手时长比例
+            GUILayout.BeginHorizontal();
+            GUILayout.Label(UseChinese ? "时长比例:" : "Press Ratio:", UIUtils.LabelStyle, GUILayout.Width(80));
+            TechLeftHandPressTimes = UIUtils.M3TextField(TechLeftHandPressTimes,
+                ref _techLeftPressTimesState.input,
+                ref _techLeftPressTimesState.focused,
+                UIUtils.TextFieldStyle,
+                "TechLeftPressTimes");
+            GUILayout.EndHorizontal();
+
+            // 左手按键顺序
+            GUILayout.BeginHorizontal();
+            GUILayout.Label(UseChinese ? "按键顺序:" : "Key Order:", UIUtils.LabelStyle, GUILayout.Width(80));
+            TechLeftHandOrders = UIUtils.M3TextField(TechLeftHandOrders,
+                ref _techLeftOrdersState.input,
+                ref _techLeftOrdersState.focused,
+                UIUtils.TextFieldStyle,
+                "TechLeftOrders");
+            GUILayout.EndHorizontal();
+
+            GUILayout.Space(6);
+
+            // 右手
+            GUILayout.Label($"── {handLabels[1]} ──", UIUtils.LabelStyle);
+            GUILayout.Space(2);
+
+            // 右手按键序列
+            GUILayout.BeginHorizontal();
+            GUILayout.Label(UseChinese ? "按键序列:" : "Keys:", UIUtils.LabelStyle, GUILayout.Width(80));
+            TechRightHandKeys = UIUtils.M3TextField(TechRightHandKeys,
+                ref _techRightKeysState.input,
+                ref _techRightKeysState.focused,
+                UIUtils.TextFieldStyle,
+                "TechRightKeys");
+            GUILayout.EndHorizontal();
+
+            // 右手时长比例
+            GUILayout.BeginHorizontal();
+            GUILayout.Label(UseChinese ? "时长比例:" : "Press Ratio:", UIUtils.LabelStyle, GUILayout.Width(80));
+            TechRightHandPressTimes = UIUtils.M3TextField(TechRightHandPressTimes,
+                ref _techRightPressTimesState.input,
+                ref _techRightPressTimesState.focused,
+                UIUtils.TextFieldStyle,
+                "TechRightPressTimes");
+            GUILayout.EndHorizontal();
+
+            // 右手按键顺序
+            GUILayout.BeginHorizontal();
+            GUILayout.Label(UseChinese ? "按键顺序:" : "Key Order:", UIUtils.LabelStyle, GUILayout.Width(80));
+            TechRightHandOrders = UIUtils.M3TextField(TechRightHandOrders,
+                ref _techRightOrdersState.input,
+                ref _techRightOrdersState.focused,
+                UIUtils.TextFieldStyle,
+                "TechRightOrders");
+            GUILayout.EndHorizontal();
+
+            // 常用预设
+            GUILayout.Space(6);
+            GUILayout.Label(UseChinese ? "预设:" : "Presets:", UIUtils.LabelStyle);
+            GUILayout.BeginHorizontal();
+            if (GUILayout.Button("DF / JK", UIUtils.ButtonStyle, GUILayout.ExpandWidth(true)))
+            { TechLeftHandKeys = "D,F"; TechRightHandKeys = "J,K"; }
+            if (GUILayout.Button("DS / JK", UIUtils.ButtonStyle, GUILayout.ExpandWidth(true)))
+            { TechLeftHandKeys = "D,S"; TechRightHandKeys = "J,K"; }
+            if (GUILayout.Button("ASDF / JKL", UIUtils.ButtonStyle, GUILayout.ExpandWidth(true)))
+            { TechLeftHandKeys = "A,S,D,F"; TechRightHandKeys = "J,K,L"; }
+            GUILayout.EndHorizontal();
+
+            GUILayout.Space(4);
+            GUILayout.Label(UseChinese
+                ? "按键顺序格式：用 | 分隔不同按键数，逗号分隔键序号(1-based)。留空=默认顺序。"
+                : "Order format: pipe separates key-count groups, comma separates indices (1-based). Empty = default.",
+                tipStyle);
+
             GUILayout.EndVertical();
         }
 

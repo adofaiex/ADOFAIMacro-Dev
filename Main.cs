@@ -86,12 +86,18 @@ namespace BaseMacro
                 // None
 
 #else
-                if (modEntry.Info.Version != "1.1.1" || modEntry.Info.Id != "BaseMacro" || modEntry.Info.DisplayName != "Base Macro" || modEntry.Info.Author != "HitMargin" || modEntry.Info.AssemblyName != "BaseMacro.dll" || modEntry.Info.EntryMethod != "BaseMacro.Main.Load")
+                if (modEntry.Info.Version != "1.2.0" || modEntry.Info.Id != "BaseMacro" || modEntry.Info.DisplayName != "Base Macro" || modEntry.Info.Author != "HitMargin" || modEntry.Info.AssemblyName != "BaseMacro.dll" || modEntry.Info.EntryMethod != "BaseMacro.Main.Load")
                 {
                     Mod?.Logger.Error("Modifying the Info.json file is NOT allowed!");
                     Application.Quit();
                 }
 
+                var creplayMod = UnityModManager.modEntries.FirstOrDefault(m => m.Info.Id.Equals("CreplayMod", StringComparison.OrdinalIgnoreCase));
+                if (creplayMod != null)
+                {
+                    Mod?.Logger.Error("Detected CreplayMod, which is incompatible. Exiting...");
+                    Application.Quit();
+                }
 #endif
                 Mod?.Info.IsCheat = true;
                 if (Mod!.Info.IsCheat)
@@ -110,7 +116,7 @@ namespace BaseMacro
                     _uiObject = new GameObject("MacroText");
                     _uiObject.AddComponent<ShowText>();
                     UnityEngine.Object.DontDestroyOnLoad(_uiObject);
-                    TrySetWindowTitle($"{GetClean(modEntry.Info.DisplayName)}, {GetClean(modEntry.Info.Version)}, {modEntry.Info.Author}");
+                    //TrySetWindowTitle($"{GetClean(modEntry.Info.DisplayName)}, {GetClean(modEntry.Info.Version)}, {modEntry.Info.Author}");
                 }
             }
             else

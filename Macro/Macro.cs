@@ -1,9 +1,12 @@
 ﻿using BaseMacro;
+using Microsoft.SqlServer.Server;
 using System;
 using System.Collections.Generic;
+using System.Linq;
 using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
 using System.Threading;
+using System.Windows.Documents;
 using UnityEngine;
 
 #nullable enable
@@ -20,14 +23,25 @@ namespace BaseMacro.Macro
         //  在 Initialize() 阶段一次性算好：触发时间、按哪个键、是否只松键
         //  工作线程热路径不再碰任何 floor 对象
         // ─────────────────────────────────────────────
-        private readonly struct HitEvent(double triggerTime, byte keyCode, bool releaseOnly)
+        private readonly struct HitEvent(double triggerTime, byte keyCode, bool releaseOnly,
+                                          bool isHoldRelated = false, byte releaseKeyCode = 0)
         {
-            /// <summary>绝对音频触发时间（秒）</summary>
             public readonly double TriggerTime = triggerTime;
-            /// <summary>要按下的虚拟键码；ReleaseOnly=true 时忽略此字段</summary>
             public readonly byte KeyCode = keyCode;
-            /// <summary>true = 本拍只松开上一个 hold 键，不按新键</summary>
             public readonly bool ReleaseOnly = releaseOnly;
+            public readonly bool IsHoldRelated = isHoldRelated;
+            // 释放事件时指定要释放哪个键，0 = 释放当前持有键（旧行为）
+            public readonly byte ReleaseKeyCode = releaseKeyCode;
+        }
+
+        private readonly struct PieceInfo(int ec, int h, double pl, double st, double et, int es)
+        {
+            public readonly int EvCount = ec;
+            public readonly int Hand = h;       // 0=左, 1=右
+            public readonly double PieceLen = pl;
+            public readonly double StartTime = st;
+            public readonly double EndTime = et;
+            public readonly int EvStart = es;
         }
 
         // ─────────────────────────────────────────────
@@ -142,6 +156,10 @@ namespace BaseMacro.Macro
         private static byte _pendingKey;
         private static bool _isKeyDown;
 
+        // 长按键独立追踪（与 _pendingKey/_isKeyDown 完全隔离）
+        private static byte _holdKey;
+        private static bool _isHoldDown;
+
         private static volatile bool _cachedSkyHookMode = false;
 
         // OPT-2: 缓存 HighPrecisionTime 设置，避免热路径每次解引用 Main.Settings 对象
@@ -155,6 +173,16 @@ namespace BaseMacro.Macro
         private const uint INPUT_KEYBOARD = 1;
         private const uint KEYEVENTF_KEYDOWN = 0;
         private const uint KEYEVENTF_KEYUP = 2;
+
+        // ─────────────────────────────────────────────
+        //  手法模拟数据（ParseTechniqueConfig 填充）
+        // ─────────────────────────────────────────────
+        private static byte[] _techLeftKeys = [];
+        private static byte[] _techRightKeys = [];
+        // [hand][keyCount-1][i] → 第 i 次按键使用的键下标
+        private static int[][][] _techKeyOrders = { [], [] };
+        // [hand][keyIndex] → 按下时长占比(0~1)
+        private static double[][] _techPressDur = { [], [] };
 
         [ThreadStatic]
         private static SkyHookSystem.INPUT _cachedInput;
@@ -176,8 +204,42 @@ namespace BaseMacro.Macro
         private static readonly bool usePerfCounter;
         private static readonly byte[] scanCodeCache = new byte[256];
 
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        private static byte[] ParseTechKeyList(string? input)
+        {
+            if (string.IsNullOrWhiteSpace(input))
+                return [0x4A]; // 默认返回 'J'
+
+            var result = new List<byte>();
+            foreach (var part in input!.Split(new[] { ',' }, StringSplitOptions.RemoveEmptyEntries))
+            {
+                var name = part.Trim().ToUpperInvariant();
+                if (string.IsNullOrEmpty(name))
+                    continue;
+
+                // 单个字母或数字直接使用 ASCII 码
+                if (name.Length == 1 && name[0] >= 'A' && name[0] <= 'Z')
+                {
+                    result.Add((byte)name[0]);
+                    continue;
+                }
+                if (name.Length == 1 && name[0] >= '0' && name[0] <= '9')
+                {
+                    result.Add((byte)name[0]);
+                    continue;
+                }
+
+                // 其他按键从字典中查找
+                if (KeyNameToCode.TryGetValue(name, out byte code))
+                    result.Add(code);
+            }
+
+            return result.Count == 0 ? [0x4A] : [.. result];
+        }
+
         private static readonly Dictionary<string, byte> KeyNameToCode = new()
         {
+            // 字母（已由单字符逻辑处理，但保留以支持别名或扩展）
             ["A"] = 0x41,
             ["B"] = 0x42,
             ["C"] = 0x43,
@@ -204,6 +266,8 @@ namespace BaseMacro.Macro
             ["X"] = 0x58,
             ["Y"] = 0x59,
             ["Z"] = 0x5A,
+
+            // 数字（同样可由单字符处理，保留字典便于统一）
             ["0"] = 0x30,
             ["1"] = 0x31,
             ["2"] = 0x32,
@@ -214,6 +278,22 @@ namespace BaseMacro.Macro
             ["7"] = 0x37,
             ["8"] = 0x38,
             ["9"] = 0x39,
+
+            // 基础符号键（无需 Shift）
+            ["`"] = 0xC0, // VK_OEM_3
+            ["-"] = 0xBD, // VK_OEM_MINUS
+            ["="] = 0xBB, // VK_OEM_PLUS
+            ["["] = 0xDB, // VK_OEM_4
+            ["]"] = 0xDD, // VK_OEM_6
+            ["\\"] = 0xDC, // VK_OEM_5
+            [";"] = 0xBA, // VK_OEM_1
+            ["'"] = 0xDE, // VK_OEM_7
+            [","] = 0xBC, // VK_OEM_COMMA
+            ["."] = 0xBE, // VK_OEM_PERIOD
+            ["/"] = 0xBF, // VK_OEM_2
+            [" "] = 0x20, // SPACE
+
+            // 功能键
             ["F1"] = 0x70,
             ["F2"] = 0x71,
             ["F3"] = 0x72,
@@ -226,10 +306,8 @@ namespace BaseMacro.Macro
             ["F10"] = 0x79,
             ["F11"] = 0x7A,
             ["F12"] = 0x7B,
-            ["LEFT"] = 0x25,
-            ["UP"] = 0x26,
-            ["RIGHT"] = 0x27,
-            ["DOWN"] = 0x28,
+
+            // 控制键
             ["CTRL"] = 0x11,
             ["LCTRL"] = 0xA2,
             ["RCTRL"] = 0xA3,
@@ -242,17 +320,77 @@ namespace BaseMacro.Macro
             ["WIN"] = 0x5B,
             ["LWIN"] = 0x5B,
             ["RWIN"] = 0x5C,
-            ["SPACE"] = 0x20,
-            ["ENTER"] = 0x0D,
-            ["ESC"] = 0x1B,
-            ["TAB"] = 0x09,
-            ["BACKSPACE"] = 0x08,
-            ["DELETE"] = 0x2E,
-            ["INSERT"] = 0x2D,
+            ["MENU"] = 0x5D,   // 右键菜单键
+
+            // 导航键
+            ["LEFT"] = 0x25,
+            ["UP"] = 0x26,
+            ["RIGHT"] = 0x27,
+            ["DOWN"] = 0x28,
             ["HOME"] = 0x24,
             ["END"] = 0x23,
             ["PAGEUP"] = 0x21,
             ["PAGEDOWN"] = 0x22,
+            ["INSERT"] = 0x2D,
+            ["DELETE"] = 0x2E,
+
+            // 编辑键
+            ["BACKSPACE"] = 0x08,
+            ["TAB"] = 0x09,
+            ["ENTER"] = 0x0D,
+            ["RETURN"] = 0x0D,
+            ["ESC"] = 0x1B,
+            ["ESCAPE"] = 0x1B,
+            ["SPACE"] = 0x20,
+            ["SPACEBAR"] = 0x20,
+
+            // 小键盘
+            ["NUMPAD0"] = 0x60,
+            ["NUMPAD1"] = 0x61,
+            ["NUMPAD2"] = 0x62,
+            ["NUMPAD3"] = 0x63,
+            ["NUMPAD4"] = 0x64,
+            ["NUMPAD5"] = 0x65,
+            ["NUMPAD6"] = 0x66,
+            ["NUMPAD7"] = 0x67,
+            ["NUMPAD8"] = 0x68,
+            ["NUMPAD9"] = 0x69,
+            ["NUMPADMULTIPLY"] = 0x6A,
+            ["NUMPADADD"] = 0x6B,
+            ["NUMPADSEPARATOR"] = 0x6C,
+            ["NUMPADSUBTRACT"] = 0x6D,
+            ["NUMPADDECIMAL"] = 0x6E,
+            ["NUMPADDIVIDE"] = 0x6F,
+            ["NUMPADENTER"] = 0x0D, // 与主键盘 Enter 相同，可根据需要区分
+            ["NUMLOCK"] = 0x90,
+
+            // 其他常用键
+            ["PRINTSCREEN"] = 0x2C,
+            ["SCROLLLOCK"] = 0x91,
+            ["PAUSE"] = 0x13,
+            ["BREAK"] = 0x13,
+            ["CAPSLOCK"] = 0x14,
+            ["HELP"] = 0x2F,
+
+            // 多媒体键（可选）
+            ["VOLUME_MUTE"] = 0xAD,
+            ["VOLUME_DOWN"] = 0xAE,
+            ["VOLUME_UP"] = 0xAF,
+            ["MEDIA_NEXT_TRACK"] = 0xB0,
+            ["MEDIA_PREV_TRACK"] = 0xB1,
+            ["MEDIA_STOP"] = 0xB2,
+            ["MEDIA_PLAY_PAUSE"] = 0xB3,
+            ["BROWSER_HOME"] = 0xAC,
+            ["BROWSER_SEARCH"] = 0xAA,
+            ["BROWSER_FAVORITES"] = 0xAB,
+            ["BROWSER_REFRESH"] = 0xA8,
+            ["BROWSER_STOP"] = 0xA9,
+            ["BROWSER_FORWARD"] = 0xA7,
+            ["BROWSER_BACK"] = 0xA6,
+            ["LAUNCH_MAIL"] = 0xB4,
+            ["LAUNCH_MEDIA_SELECT"] = 0xB5,
+            ["LAUNCH_APP1"] = 0xB6,
+            ["LAUNCH_APP2"] = 0xB7,
         };
 
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
@@ -468,20 +606,72 @@ namespace BaseMacro.Macro
                         // ── 到时间，执行按键 ─────────────────────────────────
                         ref readonly var ev = ref events[i];
 
+                        // 在 WorkerLoop 的核心循环中，处理事件时区分模式
+                        bool enableTechnique = Main.Settings.EnableTechniqueSimulation; // 手法模拟模式标志
+
                         if (!simulateKey)
                         {
+                            // 不模拟物理按键，只计数 Hit
                             hitCount++;
                             Log($"[Macro-Worker] 请求 Hit() EventIndex={i}");
                         }
                         else if (ev.ReleaseOnly)
                         {
-                            WorkerReleaseKey();
-                            Log($"[Macro-Worker] 松键 EventIndex={i} audioNow={audioNow:F6}");
+                            if (enableTechnique)
+                            {
+                                // 手法模拟：直接发送松开事件
+                                byte keyToRelease = ev.IsHoldRelated
+                                    ? (ev.ReleaseKeyCode != 0 ? ev.ReleaseKeyCode : _holdKey)   // 长按释放：优先用事件指定键，否则用记录的 _holdKey
+                                    : ev.ReleaseKeyCode;                                         // 普通键释放
+                                SendKey(keyToRelease, false);
+
+                                if (ev.IsHoldRelated)
+                                {
+                                    // 清除长按状态
+                                    _holdKey = 0;
+                                    _isHoldDown = false;
+                                }
+                                Log($"[Macro-Worker] 直接释放 key=0x{keyToRelease:X2} EventIndex={i} audioNow={audioNow:F6}");
+                            }
+                            else
+                            {
+                                // 普通模式：使用原有的状态管理函数
+                                if (ev.IsHoldRelated)
+                                    WorkerReleaseHoldKey();
+                                else
+                                    WorkerReleaseKey(ev.ReleaseKeyCode);
+                                Log($"[Macro-Worker] 松键(hold={ev.IsHoldRelated} key=0x{ev.ReleaseKeyCode:X2}) EventIndex={i}");
+                            }
+                        }
+                        else if (ev.IsHoldRelated)
+                        {
+                            if (enableTechnique)
+                            {
+                                // 手法模拟：直接按下长按键，并记录状态
+                                SendKey(ev.KeyCode, true);
+                                _holdKey = ev.KeyCode;
+                                _isHoldDown = true;
+                                Log($"[Macro-Worker] 直接长按 0x{ev.KeyCode:X2} EventIndex={i} audioNow={audioNow:F6}");
+                            }
+                            else
+                            {
+                                WorkerHoldKey(ev.KeyCode);
+                                Log($"[Macro-Worker] Hold 按下 0x{ev.KeyCode:X2} EventIndex={i}");
+                            }
                         }
                         else
                         {
-                            WorkerPressKey(ev.KeyCode);
-                            Log($"[Macro-Worker] 按下 0x{ev.KeyCode:X2} EventIndex={i} audioNow={audioNow:F6}");
+                            if (enableTechnique)
+                            {
+                                // 手法模拟：直接按下普通键，不更新 _pendingKey/_isKeyDown
+                                SendKey(ev.KeyCode, true);
+                                Log($"[Macro-Worker] 直接按下 0x{ev.KeyCode:X2} EventIndex={i} audioNow={audioNow:F6}");
+                            }
+                            else
+                            {
+                                WorkerPressKey(ev.KeyCode);
+                                Log($"[Macro-Worker] 按下 0x{ev.KeyCode:X2} EventIndex={i}");
+                            }
                         }
 
                         localLastFloor = i++;
@@ -501,8 +691,11 @@ namespace BaseMacro.Macro
                     }
 
                     // 所有事件触发完毕，确保松开最后一个持有键
-                    if (_isKeyDown && localLastFloor >= evCount - 1)
-                        WorkerReleaseKey();
+                    if (localLastFloor >= evCount - 1)
+                    {
+                        if (_isKeyDown) WorkerReleaseKey();
+                        if (_isHoldDown) WorkerReleaseHoldKey();
+                    }
 
                 WriteBack:
                     if (triggered && Volatile.Read(ref _resetVersion) == localResetVer)
@@ -515,7 +708,21 @@ namespace BaseMacro.Macro
             finally
             {
                 timeEndPeriod(1);
-                WorkerReleaseKey();
+
+                if (Main.Settings.EnableTechniqueSimulation)
+                {
+                    // 手法模拟：强制释放所有可能按下的键（保守方案：释放所有配置的键）
+                    // 但更好的做法是依赖事件表，这里只释放长按键（因为长按键状态被维护）
+                    if (_isHoldDown)
+                        SendKey(_holdKey, false);
+                    // 普通键没有记录，但事件表应已全部释放，不再额外处理
+                }
+                else
+                {
+                    WorkerReleaseKey();
+                    WorkerReleaseHoldKey();
+                }
+
                 Log("[Macro-Worker] 工作线程退出");
             }
         }
@@ -528,6 +735,10 @@ namespace BaseMacro.Macro
         {
             if (_isKeyDown && _pendingKey != keyCode)
                 WorkerReleaseKey();
+
+            // 若当前 hold 键与目标键相同，跳过重复按下
+            if (_isHoldDown && _holdKey == keyCode) return;
+
             if (!_isKeyDown)
             {
                 SendKey(keyCode, isDown: true);
@@ -537,14 +748,37 @@ namespace BaseMacro.Macro
         }
 
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        private static void WorkerReleaseKey()
+        private static void WorkerHoldKey(byte keyCode)
         {
-            if (_isKeyDown)
+            // 上一个长按未释放时先强制释放（防止连续长按叠加）
+            if (_isHoldDown) WorkerReleaseHoldKey();
+            SendKey(keyCode, isDown: true);
+            _holdKey = keyCode;
+            _isHoldDown = true;
+            Log($"[Macro-Worker] Hold 按下 0x{keyCode:X2}");
+        }
+
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        private static void WorkerReleaseHoldKey()
+        {
+            if (_isHoldDown)
             {
-                SendKey(_pendingKey, isDown: false);
-                _pendingKey = 0;
-                _isKeyDown = false;
+                SendKey(_holdKey, isDown: false);
+                _holdKey = 0;
+                _isHoldDown = false;
+                Log($"[Macro-Worker] Hold 释放");
             }
+        }
+
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        private static void WorkerReleaseKey(byte targetKey = 0)
+        {
+            if (!_isKeyDown) return;
+            // targetKey==0 或 匹配当前持有键才释放
+            if (targetKey != 0 && _pendingKey != targetKey) return;
+            SendKey(_pendingKey, isDown: false);
+            _pendingKey = 0;
+            _isKeyDown = false;
         }
 
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
@@ -615,6 +849,12 @@ namespace BaseMacro.Macro
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
         private static void BuildHitEvents()
         {
+
+            if (Main.Settings.SimulateKeyPress && Main.Settings.EnableTechniqueSimulation)
+            {
+                BuildTechniqueHitEvents();
+                return;
+            }
             var floors = cachedFloors!;
             int n = floors.Length;
             bool simulate = Main.Settings.SimulateKeyPress;
@@ -715,6 +955,260 @@ namespace BaseMacro.Macro
             if (controller == null || !Main.Settings.Macro) return;
             bool simulate = Main.Settings.SimulateKeyPress;
             controller.requireHolding = simulate && Persistence.holdBehavior < HoldBehavior.NoHoldNeeded;
+        }
+
+        // ═══════════════════════════════════════════════════════════════
+        //  手法模拟：解析配置
+        // ═══════════════════════════════════════════════════════════════
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        private static void ParseTechniqueConfig()
+        {
+            var s = Main.Settings;
+            _techLeftKeys = ParseTechKeyList(s.TechLeftHandKeys);
+            _techRightKeys = ParseTechKeyList(s.TechRightHandKeys);
+            _techKeyOrders[0] = ParseTechOrders(s.TechLeftHandOrders, _techLeftKeys.Length);
+            _techKeyOrders[1] = ParseTechOrders(s.TechRightHandOrders, _techRightKeys.Length);
+            _techPressDur[0] = ParseTechPressTimes(s.TechLeftHandPressTimes, _techLeftKeys.Length);
+            _techPressDur[1] = ParseTechPressTimes(s.TechRightHandPressTimes, _techRightKeys.Length);
+        }
+
+        /// <summary>
+        /// 格式：用 | 分隔不同按键数的方案，每方案内用逗号分隔键序号(1-based)
+        /// 例 "1|2,1|1,2,3": 1键时用键[0]；2键时先[1]后[0]；3键时[0][1][2]
+        /// </summary>
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        private static int[][] ParseTechOrders(string? input, int keyCount)
+        {
+            int slots = Math.Max(keyCount, 1);
+            var result = new int[slots][];
+            for (int n = 0; n < slots; n++)
+            {
+                result[n] = new int[n + 1];
+                for (int i = 0; i <= n; i++) result[n][i] = i % Math.Max(keyCount, 1);
+            }
+            if (string.IsNullOrWhiteSpace(input)) return result;
+
+            string[] groups = input!.Split('|');
+            for (int n = 0; n < slots; n++)
+            {
+                string group = n < groups.Length ? groups[n] : groups[groups.Length - 1];
+                var indices = new List<int>();
+                foreach (var p in group.Split([','], StringSplitOptions.RemoveEmptyEntries))
+                    if (int.TryParse(p.Trim(), out int idx))
+                        indices.Add(Math.Max(0, Math.Min(idx - 1, keyCount - 1)));
+                if (indices.Count > 0) result[n] = [.. indices];
+            }
+            return result;
+        }
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        private static double[] ParseTechPressTimes(string? input, int keyCount)
+        {
+            var result = new double[Math.Max(keyCount, 1)];
+            for (int i = 0; i < result.Length; i++) result[i] = 0.8;
+            if (string.IsNullOrWhiteSpace(input)) return result;
+            var parts = input!.Split([','], StringSplitOptions.RemoveEmptyEntries);
+            for (int i = 0; i < Math.Min(parts.Length, result.Length); i++)
+                if (double.TryParse(parts[i].Trim(),
+                        System.Globalization.NumberStyles.Any,
+                        System.Globalization.CultureInfo.InvariantCulture, out double v))
+                    result[i] = Math.Max(0.05, Math.Min(1.0, v));
+            return result;
+        }
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        private static double GetAdviceBpm()
+        {
+            double bpm = conductor?.bpm ?? 120.0;
+            double limit = (double)Main.Settings.TechniqueBpmLimit;
+            while (bpm > limit) bpm /= 2.0;
+            while (bpm <= limit / 2.0) bpm *= 2.0;
+            return bpm;
+        }
+
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        private static void BuildTechniqueHitEvents()
+        {
+            ParseTechniqueConfig();
+
+            var floors = cachedFloors!;
+            bool sim = Main.Settings.SimulateKeyPress;
+
+            // ══ 第一步：收集原始事件 ════════════════════════════════════
+            var evTime = new List<double>();
+            var evPress = new List<int>();
+
+            for (int i = 0; i < floors.Length - 1; i++)
+            {
+                var fl = floors[i];
+                if (fl == null) continue;
+                if ((fl.nextfloor?.auto ?? false) || fl.midSpin) continue;
+
+                var nf = floors[i + 1];
+                double t = nf?.entryTime ?? double.MaxValue;
+
+                // hold 尾：当前格正在hold，下一格结束hold
+                if (sim && fl.holdLength > -1 && nf != null && nf.holdLength == -1)
+                { evTime.Add(t); evPress.Add(-1); continue; }
+
+                // hold 头：下一格开始hold
+                bool isHoldHead = sim && nf != null && nf.holdLength > -1;
+                evTime.Add(t);
+                evPress.Add(isHoldHead ? 2 : 1);
+            }
+
+            int total = evTime.Count;
+            if (total == 0)
+            { _hitEvents = []; _hitEventCount = 0; return; }
+
+            var pieces = new List<PieceInfo>();
+            double nowT = 0.0;          // ← 从 0 开始！
+            int nowD = 0;
+            int cHand = 1;           // 1=右手, -1=左手
+            double nowBpm = GetAdviceBpm();
+            int mult = 0;
+            var mCnt = new int[8];
+
+            while (nowD < total)
+            {
+                if (pieces.Count > total * 64) break; // 防死循环守卫
+
+                double pLen = 60.0 / (nowBpm * Math.Pow(2, mult)) / 2.0;
+                if (pLen < 1e-9) pLen = 1e-9;
+
+                // 统计本片内的事件数
+                int cnt = 0;
+                while (cnt + nowD < total && evTime[cnt + nowD] < nowT + pLen * 0.995)
+                    cnt++;
+
+                // 乘数检查
+                int csH = cHand == 1 ? 1 : 0;
+                int maxKeys = csH == 0 ? _techLeftKeys.Length : _techRightKeys.Length;
+                if (cnt > maxKeys)
+                {
+                    mult = Math.Min(mult + 1, 7);
+                    mCnt[mult] = 0;
+                    continue;
+                }
+
+                // 确认时间片
+                pieces.Add(new PieceInfo(cnt, csH, pLen, nowT, nowT + pLen, nowD));
+
+                // 乘数降级计数器
+                if (mult > 0)
+                {
+                    mCnt[mult]++;
+                    if (mCnt[mult] >= 1 << (mult + 1)) { mCnt[mult] = 0; mult--; }
+                }
+
+                nowD += cnt;
+                nowT += pLen;
+                cHand = -cHand; // 交替手：1→-1→1→...
+
+                // 微小误差矫正
+                if (nowD < total && Math.Abs(evTime[nowD] - nowT) < pLen * 0.01)
+                    nowT = evTime[nowD];
+            }
+
+            // 哨兵片
+            if (pieces.Count > 0)
+            {
+                var lp = pieces[pieces.Count - 1];
+                int sh = 1 - lp.Hand;
+                pieces.Add(new PieceInfo(0, sh, lp.PieceLen,
+                    lp.EndTime, lp.EndTime + lp.PieceLen, nowD));
+            }
+
+            //   只由 (hand, 本片事件总数, 片内位置i) 决定，跨片不变
+            //
+            var output = new List<HitEvent>(total * 2);
+
+            for (int pcnt = 0; pcnt < pieces.Count - 1; pcnt++)
+            {
+                var cur = pieces[pcnt];
+                var next = pieces[pcnt + 1];
+
+                // 上一片的 EndTime，无 restart 时等于 cur.StartTime
+                double pStart = pcnt > 0 ? pieces[pcnt - 1].EndTime : 0.0;
+
+                for (int i = 0; i < cur.EvCount; i++)
+                {
+                    int idx = cur.EvStart + i;
+                    int press = evPress[idx];
+                    double t = evTime[idx];
+
+                    // 我们直接发送松键事件
+                    if (press == -1)
+                    {
+                        output.Add(new HitEvent(t, 0, releaseOnly: true, isHoldRelated: true));
+                        continue;
+                    }
+
+                    // ── 键位分配──────────────────────────
+                    byte[] hK = cur.Hand == 0 ? _techLeftKeys : _techRightKeys;
+                    int[][] hO = cur.Hand == 0 ? _techKeyOrders[0] : _techKeyOrders[1];
+                    double[] hT = cur.Hand == 0 ? _techPressDur[0] : _techPressDur[1];
+
+                    int oi = Math.Min(cur.EvCount - 1, hO.Length - 1);
+                    int ki = (i < hO[oi].Length) ? hO[oi][i] : (i % hK.Length);
+                    ki = Mathf.Clamp(ki, 0, hK.Length - 1);
+
+                    byte kc = hK[ki];
+                    double ratio = ki < hT.Length ? hT[ki] : 0.8;
+                    bool hold = press == 2;
+
+                    output.Add(new HitEvent(t, kc, false, hold));
+
+                    // hold 头不插入定时松键（松键来自 hold 尾事件）
+                    if (!sim || hold) continue;
+
+                    double dur;
+                    if (next.PieceLen > cur.PieceLen + 5e-6)
+                    {
+                        // 下一片更慢
+                        if (pStart + cur.PieceLen > cur.EndTime + 5e-6)
+                            // 当前片被压缩（restart 情况）
+                            dur = (next.EndTime - t) * ratio / 2.0;
+                        else
+                            // 正常情况：(pieceStart + pieceLen*2 - t) * ratio / 2
+                            dur = (pStart + cur.PieceLen * 2.0 - t) * ratio / 2.0;
+                    }
+                    else
+                    {
+                        // 下一片更快或相同
+                        if (pStart + cur.PieceLen + 5e-6 < cur.EndTime)
+                            // 当前片被拉长（restart 情况）
+                            dur = (pStart + cur.PieceLen + next.PieceLen - t) * ratio / 2.0;
+                        else
+                            // 正常情况：(nextPiece.endTime - t) * ratio / 2
+                            dur = (next.EndTime - t) * ratio / 2.0;
+                    }
+
+                    double rel = t + dur;
+
+                    // 边界检查（-1 微秒 → -1e-6 秒）
+                    if (next.Hand != cur.Hand || next.EvCount == 0)
+                    {
+                        // 换手或末尾：松键不超过下一片结束
+                        if (rel >= next.EndTime) rel = next.EndTime - 1e-6;
+                    }
+                    else
+                    {
+                        // 同手连续：松键不超过本片结束
+                        if (rel >= cur.EndTime) rel = cur.EndTime - 1e-6;
+                    }
+
+                    // 保底
+                    if (rel <= t) rel = t + (next.EndTime - t) * 0.4;
+
+                    output.Add(new HitEvent(rel, 0, true, false, releaseKeyCode: kc));
+                }
+            }
+
+            output.Sort((a, b) => a.TriggerTime.CompareTo(b.TriggerTime));
+            _hitEvents = [.. output];
+            _hitEventCount = _hitEvents.Length;
+
+            Log($"[Macro-Main] BuildTechniqueHitEvents 完成：{_hitEventCount} 事件，" +
+                $"{pieces.Count} 时间片，advBpm={GetAdviceBpm():F1}");
         }
 
         // ═══════════════════════════════════════════════════════════════
