@@ -1105,22 +1105,6 @@ namespace BaseMacro.Macro
                     continue;
                 }
 
-                int nextIdx = nowD + cnt;
-                if (cnt > 0 && nextIdx < total)
-                {
-                    double actualGap = evTime[nextIdx] - evTime[nowD];
-                    double deviation = Math.Abs(actualGap - pLen);
-
-                    // 偏差超过 0.1% 但小于 20%，认为是 BPM 变化，动态修正
-                    if (deviation > pLen * 0.001 && deviation < pLen * 0.2)
-                    {
-                        nowBpm *= pLen / actualGap;
-                        nowT = evTime[nowD]; // 重新对齐起始点
-                        Log($"[Technique] 自动修正 BPM → {nowBpm:F1}，偏差={deviation * 1000:F1}ms");
-                        continue; // 用新 bpm 重新计算这个时间片
-                    }
-                }
-
                 // 确认时间片
                 pieces.Add(new PieceInfo(cnt, csH, pLen, nowT, nowT + pLen, nowD));
 
