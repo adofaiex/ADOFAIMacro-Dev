@@ -15,6 +15,37 @@ namespace BaseMacro
     /// </summary>
     public class Settings : UnityModManager.ModSettings
     {
+
+        [Serializable]
+        public class TechniqueProfile
+        {
+            public string name = "默认配置";
+            public string leftHandKeys = "D,F";
+            public string rightHandKeys = "J,K";
+            public string leftHandOrders = "";
+            public string rightHandOrders = "";
+            public string leftHandPressTimes = "0.8,0.8";
+            public string rightHandPressTimes = "0.8,0.8";
+            public int handPreference = 1; // 0=左手优先, 1=右手优先
+
+            public TechniqueProfile() { } // 无参构造用于序列化
+
+            // 克隆方法，用于新建配置时复制当前值
+            public TechniqueProfile Clone()
+            {
+                return new TechniqueProfile
+                {
+                    name = this.name + " (副本)",
+                    leftHandKeys = this.leftHandKeys,
+                    rightHandKeys = this.rightHandKeys,
+                    leftHandOrders = this.leftHandOrders,
+                    rightHandOrders = this.rightHandOrders,
+                    leftHandPressTimes = this.leftHandPressTimes,
+                    rightHandPressTimes = this.rightHandPressTimes,
+                    handPreference = this.handPreference
+                };
+            }
+        }
         public event Action<bool> OnMacroChanged;
 
         private bool _useChinese = true;  // 默认中文
@@ -314,6 +345,18 @@ namespace BaseMacro
         public bool HighPrecisionTime;
 
         private int selectedCardIndex = 0;
+
+        // 手法模拟起始手偏好：0 = 左手优先, 1 = 右手优先
+        private int _techniqueHandPreference = 1;
+        public int TechniqueHandPreference
+        {
+            get => _techniqueHandPreference;
+            set
+            {
+                if (_techniqueHandPreference == value) return;
+                _techniqueHandPreference = value;
+            }
+        }
 
         // 重构后的 OnGUI 方法
         public void OnGUI(UnityModManager.ModEntry modEntry)
@@ -961,6 +1004,52 @@ namespace BaseMacro
         private (string input, bool focused) _techLeftOrdersState = (string.Empty, false);
         private (string input, bool focused) _techRightOrdersState = (string.Empty, false);
 
+        private List<TechniqueProfile> _techniqueProfiles = new List<TechniqueProfile>();
+        public List<TechniqueProfile> TechniqueProfiles
+        {
+            get => _techniqueProfiles;
+            set => _techniqueProfiles = value;
+        }
+
+        private int _selectedTechniqueProfileIndex = 0;
+        public int SelectedTechniqueProfileIndex
+        {
+            get => _selectedTechniqueProfileIndex;
+            set
+            {
+                if (_selectedTechniqueProfileIndex == value) return;
+                _selectedTechniqueProfileIndex = value;
+                // 当索引改变时，将配置值加载到旧字段（用于 UI 显示）
+                LoadTechniqueProfileToFields(value);
+            }
+        }
+
+        private void LoadTechniqueProfileToFields(int index)
+        {
+            if (index < 0 || index >= _techniqueProfiles.Count) return;
+            var p = _techniqueProfiles[index];
+            TechLeftHandKeys = p.leftHandKeys;
+            TechRightHandKeys = p.rightHandKeys;
+            TechLeftHandOrders = p.leftHandOrders;
+            TechRightHandOrders = p.rightHandOrders;
+            TechLeftHandPressTimes = p.leftHandPressTimes;
+            TechRightHandPressTimes = p.rightHandPressTimes;
+            TechniqueHandPreference = p.handPreference;
+        }
+
+        private void SaveCurrentToProfile(int index)
+        {
+            if (index < 0 || index >= _techniqueProfiles.Count) return;
+            var p = _techniqueProfiles[index];
+            p.leftHandKeys = TechLeftHandKeys;
+            p.rightHandKeys = TechRightHandKeys;
+            p.leftHandOrders = TechLeftHandOrders;
+            p.rightHandOrders = TechRightHandOrders;
+            p.leftHandPressTimes = TechLeftHandPressTimes;
+            p.rightHandPressTimes = TechRightHandPressTimes;
+            p.handPreference = TechniqueHandPreference;
+        }
+
         private void DrawTechniqueSimCard()
         {
             GUILayout.BeginVertical(UIUtils.CardStyle);
@@ -976,13 +1065,79 @@ namespace BaseMacro
 
             if (!EnableTechniqueSimulation) { GUILayout.EndVertical(); return; }
 
-            // 分隔线
+            // 确保至少有一个配置
+            if (_techniqueProfiles.Count == 0)
+            {
+                _techniqueProfiles.Add(new TechniqueProfile());
+                LoadTechniqueProfileToFields(0);
+            }
+
             GUILayout.Space(6);
             Color orig = GUI.color;
             GUI.color = new Color(0.5f, 0.5f, 0.5f, 0.3f);
             GUILayout.Box("", GUILayout.Height(1), GUILayout.ExpandWidth(true));
             GUI.color = orig;
             GUILayout.Space(4);
+
+            // ── 配置管理区域 ─────────────────────────────────────
+            GUILayout.BeginHorizontal();
+
+            // 配置名称输入框
+            GUILayout.Label(UseChinese ? "配置名称" : "Profile Name", UIUtils.LabelStyle, GUILayout.Width(100));
+            string newName = GUILayout.TextField(_techniqueProfiles[SelectedTechniqueProfileIndex].name, UIUtils.TextFieldStyle, GUILayout.ExpandWidth(true));
+            if (newName != _techniqueProfiles[SelectedTechniqueProfileIndex].name)
+            {
+                _techniqueProfiles[SelectedTechniqueProfileIndex].name = newName;
+            }
+
+            // 新建按钮
+            if (GUILayout.Button(UseChinese ? "新建" : "New", UIUtils.ButtonStyle, GUILayout.Width(60)))
+            {
+                var newProfile = _techniqueProfiles[SelectedTechniqueProfileIndex].Clone();
+                _techniqueProfiles.Add(newProfile);
+                SelectedTechniqueProfileIndex = _techniqueProfiles.Count - 1; // 自动切换到新配置
+            }
+
+            // 删除按钮
+            if (GUILayout.Button(UseChinese ? "删除" : "Delete", UIUtils.ButtonStyle, GUILayout.Width(60)))
+            {
+                if (_techniqueProfiles.Count > 1)
+                {
+                    _techniqueProfiles.RemoveAt(SelectedTechniqueProfileIndex);
+                    SelectedTechniqueProfileIndex = Mathf.Clamp(SelectedTechniqueProfileIndex - 1, 0, _techniqueProfiles.Count - 1);
+                }
+            }
+            GUILayout.EndHorizontal();
+
+            GUILayout.Space(4);
+
+            // 配置下拉选择
+            GUILayout.BeginHorizontal();
+            GUILayout.Label(UseChinese ? "选择配置" : "Select Profile", UIUtils.LabelStyle, GUILayout.Width(100));
+            string[] profileNames = _techniqueProfiles.Select(p => p.name).ToArray();
+            int newIndex = UIUtils.M3SelectionGrid(SelectedTechniqueProfileIndex, profileNames, Mathf.Min(profileNames.Length, 4), GUILayout.ExpandWidth(true));
+            if (newIndex != SelectedTechniqueProfileIndex)
+            {
+                // 切换前自动保存当前修改（已实时同步，无需额外操作）
+                SelectedTechniqueProfileIndex = newIndex;
+            }
+            GUILayout.EndHorizontal();
+
+            GUILayout.Space(8);
+
+            // 起始手偏好
+            GUILayout.BeginHorizontal();
+            GUILayout.Label(UseChinese ? "起始手" : "Starting Hand", UIUtils.LabelStyle, GUILayout.Width(140));
+            string[] handOptions = UseChinese ? ["左手", "右手"] : ["Left", "Right"];
+            int newHandPref = UIUtils.M3SelectionGrid(TechniqueHandPreference, handOptions, 2, GUILayout.Width(200));
+            if (newHandPref != TechniqueHandPreference)
+            {
+                TechniqueHandPreference = newHandPref;
+                // 同步到当前配置
+                _techniqueProfiles[SelectedTechniqueProfileIndex].handPreference = newHandPref;
+            }
+            GUILayout.EndHorizontal();
+            GUILayout.Space(8);
 
             // 速度阈值
             GUILayout.BeginHorizontal();
@@ -1015,31 +1170,46 @@ namespace BaseMacro
             // 左手按键序列
             GUILayout.BeginHorizontal();
             GUILayout.Label(UseChinese ? "按键序列:" : "Keys:", UIUtils.LabelStyle, GUILayout.Width(80));
-            TechLeftHandKeys = UIUtils.M3TextField(TechLeftHandKeys,
+            string newLeftKeys = UIUtils.M3TextField(TechLeftHandKeys,
                 ref _techLeftKeysState.input,
                 ref _techLeftKeysState.focused,
                 UIUtils.TextFieldStyle,
                 "TechLeftKeys");
+            if (newLeftKeys != TechLeftHandKeys)
+            {
+                TechLeftHandKeys = newLeftKeys;
+                _techniqueProfiles[SelectedTechniqueProfileIndex].leftHandKeys = newLeftKeys;
+            }
             GUILayout.EndHorizontal();
 
             // 左手时长比例
             GUILayout.BeginHorizontal();
             GUILayout.Label(UseChinese ? "时长比例:" : "Press Ratio:", UIUtils.LabelStyle, GUILayout.Width(80));
-            TechLeftHandPressTimes = UIUtils.M3TextField(TechLeftHandPressTimes,
+            string newLeftPress = UIUtils.M3TextField(TechLeftHandPressTimes,
                 ref _techLeftPressTimesState.input,
                 ref _techLeftPressTimesState.focused,
                 UIUtils.TextFieldStyle,
                 "TechLeftPressTimes");
+            if (newLeftPress != TechLeftHandPressTimes)
+            {
+                TechLeftHandPressTimes = newLeftPress;
+                _techniqueProfiles[SelectedTechniqueProfileIndex].leftHandPressTimes = newLeftPress;
+            }
             GUILayout.EndHorizontal();
 
             // 左手按键顺序
             GUILayout.BeginHorizontal();
             GUILayout.Label(UseChinese ? "按键顺序:" : "Key Order:", UIUtils.LabelStyle, GUILayout.Width(80));
-            TechLeftHandOrders = UIUtils.M3TextField(TechLeftHandOrders,
+            string newLeftOrder = UIUtils.M3TextField(TechLeftHandOrders,
                 ref _techLeftOrdersState.input,
                 ref _techLeftOrdersState.focused,
                 UIUtils.TextFieldStyle,
                 "TechLeftOrders");
+            if (newLeftOrder != TechLeftHandOrders)
+            {
+                TechLeftHandOrders = newLeftOrder;
+                _techniqueProfiles[SelectedTechniqueProfileIndex].leftHandOrders = newLeftOrder;
+            }
             GUILayout.EndHorizontal();
 
             GUILayout.Space(6);
@@ -1051,31 +1221,46 @@ namespace BaseMacro
             // 右手按键序列
             GUILayout.BeginHorizontal();
             GUILayout.Label(UseChinese ? "按键序列:" : "Keys:", UIUtils.LabelStyle, GUILayout.Width(80));
-            TechRightHandKeys = UIUtils.M3TextField(TechRightHandKeys,
+            string newRightKeys = UIUtils.M3TextField(TechRightHandKeys,
                 ref _techRightKeysState.input,
                 ref _techRightKeysState.focused,
                 UIUtils.TextFieldStyle,
                 "TechRightKeys");
+            if (newRightKeys != TechRightHandKeys)
+            {
+                TechRightHandKeys = newRightKeys;
+                _techniqueProfiles[SelectedTechniqueProfileIndex].rightHandKeys = newRightKeys;
+            }
             GUILayout.EndHorizontal();
 
             // 右手时长比例
             GUILayout.BeginHorizontal();
             GUILayout.Label(UseChinese ? "时长比例:" : "Press Ratio:", UIUtils.LabelStyle, GUILayout.Width(80));
-            TechRightHandPressTimes = UIUtils.M3TextField(TechRightHandPressTimes,
+            string newRightPress = UIUtils.M3TextField(TechRightHandPressTimes,
                 ref _techRightPressTimesState.input,
                 ref _techRightPressTimesState.focused,
                 UIUtils.TextFieldStyle,
                 "TechRightPressTimes");
+            if (newRightPress != TechRightHandPressTimes)
+            {
+                TechRightHandPressTimes = newRightPress;
+                _techniqueProfiles[SelectedTechniqueProfileIndex].rightHandPressTimes = newRightPress;
+            }
             GUILayout.EndHorizontal();
 
             // 右手按键顺序
             GUILayout.BeginHorizontal();
             GUILayout.Label(UseChinese ? "按键顺序:" : "Key Order:", UIUtils.LabelStyle, GUILayout.Width(80));
-            TechRightHandOrders = UIUtils.M3TextField(TechRightHandOrders,
+            string newRightOrder = UIUtils.M3TextField(TechRightHandOrders,
                 ref _techRightOrdersState.input,
                 ref _techRightOrdersState.focused,
                 UIUtils.TextFieldStyle,
                 "TechRightOrders");
+            if (newRightOrder != TechRightHandOrders)
+            {
+                TechRightHandOrders = newRightOrder;
+                _techniqueProfiles[SelectedTechniqueProfileIndex].rightHandOrders = newRightOrder;
+            }
             GUILayout.EndHorizontal();
 
             // 常用预设
@@ -1083,11 +1268,27 @@ namespace BaseMacro
             GUILayout.Label(UseChinese ? "预设:" : "Presets:", UIUtils.LabelStyle);
             GUILayout.BeginHorizontal();
             if (GUILayout.Button("DF / JK", UIUtils.ButtonStyle, GUILayout.ExpandWidth(true)))
-            { TechLeftHandKeys = "D,F"; TechRightHandKeys = "J,K"; }
+            {
+                TechLeftHandKeys = "D,F";
+                TechRightHandKeys = "J,K";
+                // 同步到配置
+                _techniqueProfiles[SelectedTechniqueProfileIndex].leftHandKeys = "D,F";
+                _techniqueProfiles[SelectedTechniqueProfileIndex].rightHandKeys = "J,K";
+            }
             if (GUILayout.Button("DS / JK", UIUtils.ButtonStyle, GUILayout.ExpandWidth(true)))
-            { TechLeftHandKeys = "D,S"; TechRightHandKeys = "J,K"; }
+            {
+                TechLeftHandKeys = "D,S";
+                TechRightHandKeys = "J,K";
+                _techniqueProfiles[SelectedTechniqueProfileIndex].leftHandKeys = "D,S";
+                _techniqueProfiles[SelectedTechniqueProfileIndex].rightHandKeys = "J,K";
+            }
             if (GUILayout.Button("ASDF / JKL", UIUtils.ButtonStyle, GUILayout.ExpandWidth(true)))
-            { TechLeftHandKeys = "A,S,D,F"; TechRightHandKeys = "J,K,L"; }
+            {
+                TechLeftHandKeys = "A,S,D,F";
+                TechRightHandKeys = "J,K,L";
+                _techniqueProfiles[SelectedTechniqueProfileIndex].leftHandKeys = "A,S,D,F";
+                _techniqueProfiles[SelectedTechniqueProfileIndex].rightHandKeys = "J,K,L";
+            }
             GUILayout.EndHorizontal();
 
             GUILayout.Space(4);

@@ -647,7 +647,17 @@ namespace BaseMacro.Macro
                         {
                             if (enableTechnique)
                             {
-                                // 手法模拟：直接按下长按键，并记录状态
+                                // 强制释放上一个长按（解决连续长按顺序问题）
+                                if (_isHoldDown)
+                                {
+                                    byte oldKey = _holdKey;
+                                    SendKey(oldKey, false);
+                                    _holdKey = 0;
+                                    _isHoldDown = false;
+                                    Log($"[Macro-Worker] 强制释放上一个长按 0x{oldKey:X2}");
+                                }
+
+                                // 按下新的长按键并记录状态
                                 SendKey(ev.KeyCode, true);
                                 _holdKey = ev.KeyCode;
                                 _isHoldDown = true;
@@ -964,13 +974,18 @@ namespace BaseMacro.Macro
         private static void ParseTechniqueConfig()
         {
             var s = Main.Settings;
+
+            // 解析左右手按键
             _techLeftKeys = ParseTechKeyList(s.TechLeftHandKeys);
             _techRightKeys = ParseTechKeyList(s.TechRightHandKeys);
+
+            // 确保按键顺序数组大小正确
             _techKeyOrders[0] = ParseTechOrders(s.TechLeftHandOrders, _techLeftKeys.Length);
             _techKeyOrders[1] = ParseTechOrders(s.TechRightHandOrders, _techRightKeys.Length);
             _techPressDur[0] = ParseTechPressTimes(s.TechLeftHandPressTimes, _techLeftKeys.Length);
             _techPressDur[1] = ParseTechPressTimes(s.TechRightHandPressTimes, _techRightKeys.Length);
         }
+
 
         /// <summary>
         /// 格式：用 | 分隔不同按键数的方案，每方案内用逗号分隔键序号(1-based)
@@ -979,12 +994,12 @@ namespace BaseMacro.Macro
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
         private static int[][] ParseTechOrders(string? input, int keyCount)
         {
-            int slots = Math.Max(keyCount, 1);
+            int slots = keyCount;
             var result = new int[slots][];
             for (int n = 0; n < slots; n++)
             {
                 result[n] = new int[n + 1];
-                for (int i = 0; i <= n; i++) result[n][i] = i % Math.Max(keyCount, 1);
+                for (int i = 0; i <= n; i++) result[n][i] = i % keyCount;
             }
             if (string.IsNullOrWhiteSpace(input)) return result;
 
@@ -1003,7 +1018,7 @@ namespace BaseMacro.Macro
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
         private static double[] ParseTechPressTimes(string? input, int keyCount)
         {
-            var result = new double[Math.Max(keyCount, 1)];
+            var result = new double[keyCount];
             for (int i = 0; i < result.Length; i++) result[i] = 0.8;
             if (string.IsNullOrWhiteSpace(input)) return result;
             var parts = input!.Split([','], StringSplitOptions.RemoveEmptyEntries);
@@ -1011,13 +1026,13 @@ namespace BaseMacro.Macro
                 if (double.TryParse(parts[i].Trim(),
                         System.Globalization.NumberStyles.Any,
                         System.Globalization.CultureInfo.InvariantCulture, out double v))
-                    result[i] = Math.Max(0.05, Math.Min(1.0, v));
+                    result[i] = v;
             return result;
         }
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
         private static double GetAdviceBpm()
         {
-            double bpm = conductor?.bpm ?? 120.0;
+            double bpm = (double)(conductor!.bpm * ADOBase.controller.speed * conductor.song.pitch);
             double limit = (double)Main.Settings.TechniqueBpmLimit;
             while (bpm > limit) bpm /= 2.0;
             while (bpm <= limit / 2.0) bpm *= 2.0;
@@ -1062,7 +1077,8 @@ namespace BaseMacro.Macro
             var pieces = new List<PieceInfo>();
             double nowT = 0.0;          // ← 从 0 开始！
             int nowD = 0;
-            int cHand = 1;           // 1=右手, -1=左手
+            // 从设置中获取起始手偏好
+            int cHand = Main.Settings.TechniqueHandPreference == 0 ? -1 : 1; // 0:左手优先(-1), 1:右手优先(1)
             double nowBpm = GetAdviceBpm();
             int mult = 0;
             var mCnt = new int[8];
@@ -1089,6 +1105,22 @@ namespace BaseMacro.Macro
                     continue;
                 }
 
+                int nextIdx = nowD + cnt;
+                if (cnt > 0 && nextIdx < total)
+                {
+                    double actualGap = evTime[nextIdx] - evTime[nowD];
+                    double deviation = Math.Abs(actualGap - pLen);
+
+                    // 偏差超过 0.1% 但小于 20%，认为是 BPM 变化，动态修正
+                    if (deviation > pLen * 0.001 && deviation < pLen * 0.2)
+                    {
+                        nowBpm *= pLen / actualGap;
+                        nowT = evTime[nowD]; // 重新对齐起始点
+                        Log($"[Technique] 自动修正 BPM → {nowBpm:F1}，偏差={deviation * 1000:F1}ms");
+                        continue; // 用新 bpm 重新计算这个时间片
+                    }
+                }
+
                 // 确认时间片
                 pieces.Add(new PieceInfo(cnt, csH, pLen, nowT, nowT + pLen, nowD));
 
@@ -1111,9 +1143,9 @@ namespace BaseMacro.Macro
             // 哨兵片
             if (pieces.Count > 0)
             {
+                // 哨兵片，手值用 1 - lp.Hand 即可，反正 EvCount==0 会兜底
                 var lp = pieces[pieces.Count - 1];
-                int sh = 1 - lp.Hand;
-                pieces.Add(new PieceInfo(0, sh, lp.PieceLen,
+                pieces.Add(new PieceInfo(0, 1 - lp.Hand, lp.PieceLen,
                     lp.EndTime, lp.EndTime + lp.PieceLen, nowD));
             }
 
