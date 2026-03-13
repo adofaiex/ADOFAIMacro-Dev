@@ -10,7 +10,7 @@ using System.Threading.Tasks;
 using UnityEngine;
 
 #nullable enable
-namespace BaseMacro.Macro
+namespace ADOFAIMacro.Macro
 {
 
     internal class TechniqueSimulator

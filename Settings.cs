@@ -1,4 +1,4 @@
-﻿using BaseMacro.Macro;
+﻿using ADOFAIMacro.Macro;
 using HarmonyLib;
 using Newgrounds;
 using System;
@@ -8,7 +8,7 @@ using System.Reflection;
 using UnityEngine;
 using UnityModManagerNet;
 
-namespace BaseMacro
+namespace ADOFAIMacro
 {
     /// <summary>
     /// Mod settings class
@@ -174,8 +174,8 @@ namespace BaseMacro
                 if (_inputMode == value) return;
                 _inputMode = value;
                 // 通知 DLL 切换模式
-                if (BaseMacro.Macro.InputSystem.IsInitialized)
-                    BaseMacro.Macro.InputSystem.SetInputMode((Macro.InputMode)value);
+                if (ADOFAIMacro.Macro.InputSystem.IsInitialized)
+                    ADOFAIMacro.Macro.InputSystem.SetInputMode((Macro.InputMode)value);
             }
         }
 
@@ -540,9 +540,9 @@ namespace BaseMacro
                         UIUtils.LabelStyle, GUILayout.Width(150));
 
                     // 当前实际生效模式（只读提示）
-                    if (BaseMacro.Macro.InputSystem.IsInitialized)
+                    if (InputSystem.IsInitialized)
                     {
-                        var actual = BaseMacro.Macro.InputSystem.GetInputMode();
+                        var actual = InputSystem.GetInputMode();
                         GUIStyle hintStyle = new(UIUtils.LabelStyle);
                         hintStyle.normal.textColor = new Color(0.5f, 0.9f, 0.5f, 0.8f);
                         hintStyle.fontSize = 10;
@@ -556,8 +556,8 @@ namespace BaseMacro
                     GUILayout.Space(4);
 
                     // 可用模式检测
-                    bool hasInject = !BaseMacro.Macro.InputSystem.IsInitialized || BaseMacro.Macro.InputSystem.IsModeAvailable(BaseMacro.Macro.InputMode.NtUserInjectKeyboard);
-                    bool hasNtSend = !BaseMacro.Macro.InputSystem.IsInitialized || BaseMacro.Macro.InputSystem.IsModeAvailable(BaseMacro.Macro.InputMode.NtUserSendInput);
+                    bool hasInject = !ADOFAIMacro.Macro.InputSystem.IsInitialized || ADOFAIMacro.Macro.InputSystem.IsModeAvailable(ADOFAIMacro.Macro.InputMode.NtUserInjectKeyboard);
+                    bool hasNtSend = !ADOFAIMacro.Macro.InputSystem.IsInitialized || ADOFAIMacro.Macro.InputSystem.IsModeAvailable(ADOFAIMacro.Macro.InputMode.NtUserSendInput);
 
                     // 模式按钮组
                     string[] modeLabels = UseChinese
@@ -617,10 +617,10 @@ namespace BaseMacro
         // ── 模式名称辅助 ──────────────────────────────────────────
         private string GetModeLabel(Macro.InputMode mode, bool chinese) => mode switch
         {
-            BaseMacro.Macro.InputMode.Auto => chinese ? "自动" : "Auto",
-            BaseMacro.Macro.InputMode.NtUserInjectKeyboard => chinese ? "NtInject" : "NtInject",
-            BaseMacro.Macro.InputMode.NtUserSendInput => chinese ? "NtSendInput ★" : "NtSendInput ★",
-            BaseMacro.Macro.InputMode.SendInput => chinese ? "SendInput" : "SendInput",
+            ADOFAIMacro.Macro.InputMode.Auto => chinese ? "自动" : "Auto",
+            ADOFAIMacro.Macro.InputMode.NtUserInjectKeyboard => chinese ? "NtInject" : "NtInject",
+            ADOFAIMacro.Macro.InputMode.NtUserSendInput => chinese ? "NtSendInput ★" : "NtSendInput ★",
+            ADOFAIMacro.Macro.InputMode.SendInput => chinese ? "SendInput" : "SendInput",
             _ => mode.ToString()
         };
 

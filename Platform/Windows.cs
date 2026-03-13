@@ -1,6 +1,6 @@
 ﻿using System.Runtime.InteropServices;
 
-namespace BaseMacro.Platform
+namespace ADOFAIMacro.Platform
 {
     public static class Windows
     {

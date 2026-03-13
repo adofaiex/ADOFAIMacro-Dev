@@ -13,7 +13,7 @@ using UnityEngine;
 
 #nullable enable
 
-namespace BaseMacro
+namespace ADOFAIMacro
 {
     public static class UIUtils
     {

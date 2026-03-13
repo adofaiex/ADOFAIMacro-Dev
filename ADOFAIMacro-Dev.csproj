@@ -7,8 +7,8 @@
     <ProjectGuid>{FFA98501-98B6-4A7F-9A1A-95FBD0AA8E87}</ProjectGuid>
     <OutputType>Library</OutputType>
     <AppDesignerFolder>Properties</AppDesignerFolder>
-    <RootNamespace>BaseMacro</RootNamespace>
-    <AssemblyName>BaseMacro</AssemblyName>
+    <RootNamespace>ADOFAIMacro</RootNamespace>
+    <AssemblyName>ADOFAIMacro</AssemblyName>
     <LangVersion>latest</LangVersion>
     <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
     <TargetFrameworkVersion>v4.8.1</TargetFrameworkVersion>

@@ -4,7 +4,7 @@ using System.Runtime.InteropServices;
 
 #nullable enable
 
-namespace BaseMacro.Macro
+namespace ADOFAIMacro.Macro
 {
     #region SkyHook 系统独立实现
 

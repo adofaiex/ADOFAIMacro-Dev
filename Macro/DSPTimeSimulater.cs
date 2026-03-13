@@ -12,11 +12,11 @@
 * 原始项目: [https://github.com/adofaiex/AsyncInputOptimize]
 * 原始许可证: GPL-3.0
 */
-using BaseMacro.Platform;
+using ADOFAIMacro.Platform;
 using UnityEngine;
 
 
-namespace BaseMacro.Macro
+namespace ADOFAIMacro.Macro
 {
     public static unsafe class DSPTimeSimulater
     {

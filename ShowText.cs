@@ -1,8 +1,8 @@
 ﻿using UnityEngine;
 using System;
-using BaseMacro.Macro;
+using ADOFAIMacro.Macro;
 
-namespace BaseMacro
+namespace ADOFAIMacro
 {
     public class ShowText : MonoBehaviour
     {

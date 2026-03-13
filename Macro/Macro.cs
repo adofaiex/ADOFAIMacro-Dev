@@ -1,5 +1,4 @@
-﻿using BaseMacro;
-using Microsoft.SqlServer.Server;
+﻿using Microsoft.SqlServer.Server;
 using System;
 using System.Collections.Generic;
 using System.Linq;
@@ -11,7 +10,7 @@ using UnityEngine;
 
 #nullable enable
 
-namespace BaseMacro.Macro
+namespace ADOFAIMacro.Macro
 {
 #pragma warning disable CS0420
     #region TimeBasedMacro

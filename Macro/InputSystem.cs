@@ -2,7 +2,7 @@
 using System.IO;
 using System.Runtime.InteropServices;
 
-namespace BaseMacro.Macro
+namespace ADOFAIMacro.Macro
 {
     public enum InputMode : int
     {

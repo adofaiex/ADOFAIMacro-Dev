@@ -1,5 +1,5 @@
-﻿using BaseMacro.Macro;
-using BaseMacro.Platform;
+﻿using ADOFAIMacro.Macro;
+using ADOFAIMacro.Platform;
 using HarmonyLib;
 using SkyHook;
 using System;
@@ -9,7 +9,7 @@ using System.Reflection;
 using System.Reflection.Emit;
 using UnityEngine;
 
-namespace BaseMacro
+namespace ADOFAIMacro
 {
     public class Patches
     {

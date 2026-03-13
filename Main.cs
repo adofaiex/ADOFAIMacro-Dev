@@ -1,4 +1,4 @@
-﻿using BaseMacro.Macro;
+﻿using ADOFAIMacro.Macro;
 using HarmonyLib;
 using SA.GoogleDoc;
 using System;
@@ -15,7 +15,7 @@ using static UnityModManagerNet.UnityModManager;
 
 #nullable enable
 
-namespace BaseMacro
+namespace ADOFAIMacro
 {
 #if DEBUG
     [EnableReloading]
@@ -96,7 +96,7 @@ namespace BaseMacro
                 // None
 
 #else
-                if (modEntry.Info.Version != "1.2.0" || modEntry.Info.Id != "BaseMacro" || modEntry.Info.DisplayName != "Base Macro" || modEntry.Info.Author != "HitMargin" || modEntry.Info.AssemblyName != "BaseMacro.dll" || modEntry.Info.EntryMethod != "BaseMacro.Main.Load")
+                if (modEntry.Info.Version != "1.2.0" || modEntry.Info.Id != "ADOFAIMacro" || modEntry.Info.DisplayName != "ADOFAI Macro" || modEntry.Info.Author != "HitMargin" || modEntry.Info.AssemblyName != "ADOFAIMacro.dll" || modEntry.Info.EntryMethod != "ADOFAIMacro.Main.Load")
                 {
                     Mod?.Logger.Error("Modifying the Info.json file is NOT allowed!");
                     Application.Quit();
@@ -109,6 +109,11 @@ namespace BaseMacro
                     Application.Quit();
                 }
 #endif
+                if (UnityModManager.modEntries.FirstOrDefault(m => m.Info.Id.Equals("BaseMacro", StringComparison.OrdinalIgnoreCase)) != null)
+                {
+                    Mod?.Logger.Error("Detected BaseMacro, which is incompatible. Exiting...");
+                    Application.Quit();
+                }
                 Mod?.Info.IsCheat = true;
                 if (Mod!.Info.IsCheat)
                 {

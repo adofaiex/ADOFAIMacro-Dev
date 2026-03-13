@@ -1,6 +1,6 @@
 ﻿using System;
 
-namespace BaseMacro.Platform
+namespace ADOFAIMacro.Platform
 {
     public static class BaseSelect
     {

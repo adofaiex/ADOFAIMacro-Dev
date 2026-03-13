@@ -1,13 +1,13 @@
-﻿using BaseMacro.Platform;
+﻿using ADOFAIMacro.Platform;
 using System;
 using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
 using System.Threading;
-using static BaseMacro.Macro.SkyHookSystem;
+using static ADOFAIMacro.Macro.SkyHookSystem;
 
 #nullable enable
 
-namespace BaseMacro.Macro
+namespace ADOFAIMacro.Macro
 {
     public static class AsyncInputManager
     {
