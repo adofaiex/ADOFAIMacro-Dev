@@ -930,7 +930,7 @@ namespace ADOFAIMacro
             thanksStyle.fontSize = 9;
             thanksStyle.alignment = TextAnchor.MiddleCenter;
 
-            GUILayout.Label(UseChinese ? "❤️ 感谢使用 BaseMacro" : "❤️ Thanks for using BaseMacro", thanksStyle);
+            GUILayout.Label(UseChinese ? $"❤️ 感谢使用 {Main.Mod.Info.Id}" : $"❤️ Thanks for using {Main.Mod.Info.Id}", thanksStyle);
 
             GUILayout.EndVertical();
         }
@@ -1069,6 +1069,9 @@ namespace ADOFAIMacro
         {
             GUILayout.BeginVertical(UIUtils.CardStyle);
             GUILayout.Label(UseChinese ? "手法模拟" : "Technique Simulation", UIUtils.HeaderStyle);
+            GUILayout.Space(2);
+
+            GUILayout.Label(UseChinese ? "注：最开始进入游戏需要死亡一次来校准时间" : "Note: The first time you enter the game, you need to die once to calibrate the time.", UIUtils.HeaderStyle);
             GUILayout.Space(2);
 
             // 检查DLL状态
