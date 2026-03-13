@@ -1091,18 +1091,28 @@ namespace BaseMacro.Macro
                 if (pLen < 1e-9) pLen = 1e-9;
 
                 // 统计本片内的事件数
+                /*
                 int cnt = 0;
                 while (cnt + nowD < total && evTime[cnt + nowD] < nowT + pLen * 0.995)
                     cnt++;
+                */
+                int cnt = CountEventsInRange(evTime, nowD, nowT + pLen * 0.995);
 
                 // 乘数检查
                 int csH = cHand == 1 ? 1 : 0;
                 int maxKeys = csH == 0 ? _techLeftKeys.Length : _techRightKeys.Length;
                 if (cnt > maxKeys)
                 {
-                    mult = Math.Min(mult + 1, 7);
-                    mCnt[mult] = 0;
-                    continue;
+                    if (mult < 7)  // 还可以增加倍频
+                    {
+                        mult = Math.Min(mult + 1, 7);
+                        mCnt[mult] = 0;
+                        continue;
+                    }
+                    else  // 已经最大倍频了，强制限制
+                    {
+                        cnt = maxKeys;
+                    }
                 }
 
                 // 确认时间片
@@ -1225,6 +1235,27 @@ namespace BaseMacro.Macro
 
             Log($"[Macro-Main] BuildTechniqueHitEvents 完成：{_hitEventCount} 事件，" +
                 $"{pieces.Count} 时间片，advBpm={GetAdviceBpm():F1}");
+        }
+
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        private static int CountEventsInRange(List<double> times, int start, double endTime)
+        {
+            if (start >= times.Count) return 0;
+
+            int left = start;
+            int right = times.Count - 1;
+
+            // 二分查找第一个 >= endTime 的索引
+            while (left <= right)
+            {
+                int mid = (left + right) >> 1;
+                if (times[mid] < endTime)
+                    left = mid + 1;
+                else
+                    right = mid - 1;
+            }
+
+            return left - start;
         }
 
         // ═══════════════════════════════════════════════════════════════
