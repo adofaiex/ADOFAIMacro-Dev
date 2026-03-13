@@ -33,14 +33,15 @@ namespace ADOFAIMacro.Macro
             public readonly byte ReleaseKeyCode = releaseKeyCode;
         }
 
-        private readonly struct PieceInfo(int ec, int h, double pl, double st, double et, int es)
+        private readonly struct PieceInfo(int ec, int h, double pl, double st, double et, int es, int mult = 0)
         {
             public readonly int EvCount = ec;
-            public readonly int Hand = h;       // 0=左, 1=右
+            public readonly int Hand = h;     // 0=左, 1=右
             public readonly double PieceLen = pl;
             public readonly double StartTime = st;
             public readonly double EndTime = et;
             public readonly int EvStart = es;
+            public readonly int Multiplier = mult;  // ★ 新增：当前片的 BPM 倍乘指数
         }
 
         // ─────────────────────────────────────────────
@@ -1046,7 +1047,6 @@ namespace ADOFAIMacro.Macro
             var floors = cachedFloors!;
             bool sim = Main.Settings.SimulateKeyPress;
 
-            // ══ 第一步：收集原始事件 ════════════════════════════════════
             var evTime = new List<double>(floors.Length);
             var evPress = new List<int>(floors.Length);
 
@@ -1059,82 +1059,68 @@ namespace ADOFAIMacro.Macro
                 var nf = floors[i + 1];
                 double t = nf?.entryTime ?? double.MaxValue;
 
-                // hold 尾：当前格正在hold，下一格结束hold
                 if (sim && fl.holdLength > -1 && nf != null && nf.holdLength == -1)
                 { evTime.Add(t); evPress.Add(-1); continue; }
 
-                // hold 头：下一格开始hold
                 bool isHoldHead = sim && nf != null && nf.holdLength > -1;
                 evTime.Add(t);
                 evPress.Add(isHoldHead ? 2 : 1);
             }
 
             int total = evTime.Count;
-            if (total == 0)
-            { _hitEvents = []; _hitEventCount = 0; return; }
+            if (total == 0) { _hitEvents = []; _hitEventCount = 0; return; }
 
 #if DEBUG
-            // DEBUG模式下，通过设置一个标志来控制使用C++还是C#版本
             bool useCppVersion = Main.Settings.UseCppTechniqueInDebug;
 #else
-            bool useCppVersion = true; // 正式版默认使用C++
+            bool useCppVersion = true;
 #endif
             if (useCppVersion)
             {
-                // ========== 尝试使用C++ DLL ==========
                 try
                 {
-                    // 更新配置到TechniqueSimulator
                     TechniqueSimulator.UpdateConfig(
-                        _techLeftKeys,
-                        _techRightKeys,
-                        _techKeyOrders[0],
-                        _techKeyOrders[1],
-                        _techPressDur[0],
-                        _techPressDur[1],
+                        _techLeftKeys, _techRightKeys,
+                        _techKeyOrders[0], _techKeyOrders[1],
+                        _techPressDur[0], _techPressDur[1],
                         Main.Settings.TechniqueBpmLimit,
                         Main.Settings.TechniqueHandPreference);
 
-                    // 尝试使用DLL版本
                     if (TechniqueSimulator.BuildHitEvents(
-                        [.. evTime],
-                        [.. evPress],
-                        total,
-                        conductor!.bpm,
-                        ADOBase.controller.speed,
-                        conductor.song.pitch,
-                        out var nativeEvents))
+                            [.. evTime], [.. evPress], total,
+                            conductor!.bpm, ADOBase.controller.speed,
+                            conductor.song.pitch,
+                            out var nativeEvents))
                     {
                         _hitEvents = nativeEvents;
                         _hitEventCount = nativeEvents!.Length;
-                        Log($"[Macro-Main] 使用C++手法模拟完成：{_hitEventCount} 事件");
+                        Log($"[Macro-Main] C++ 手法模拟完成：{_hitEventCount} 事件");
                         return;
                     }
                 }
                 catch (Exception ex)
                 {
-                    Log($"[Macro-Main] C++手法模拟异常: {ex.Message}，使用C#版本");
+                    Log($"[Macro-Main] C++ 手法模拟异常: {ex.Message}，回退 C# 版本");
                 }
             }
 
-            // ========== DLL失败，使用C#版本 ==========
-#if DEBUG
-            BuildCTechniqueHitEvents();
-#endif
-        }
 
 #if DEBUG
+            BuildCSHarpTechniqueHitEvents();
+#endif
+        }
+#if DEBUG
+
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        private static void BuildCTechniqueHitEvents()
+        private static void BuildCSHarpTechniqueHitEvents()
         {
             ParseTechniqueConfig();
 
             var floors = cachedFloors!;
             bool sim = Main.Settings.SimulateKeyPress;
 
-            // ══ 第一步：收集原始事件 ════════════════════════════════════
-            var evTime = new List<double>();
-            var evPress = new List<int>();
+            var evTime = new List<double>(floors.Length);
+            var evPress = new List<int>(floors.Length);
 
             for (int i = 0; i < floors.Length - 1; i++)
             {
@@ -1145,28 +1131,67 @@ namespace ADOFAIMacro.Macro
                 var nf = floors[i + 1];
                 double t = nf?.entryTime ?? double.MaxValue;
 
-                // hold 尾：当前格正在hold，下一格结束hold
                 if (sim && fl.holdLength > -1 && nf != null && nf.holdLength == -1)
                 { evTime.Add(t); evPress.Add(-1); continue; }
 
-                // hold 头：下一格开始hold
                 bool isHoldHead = sim && nf != null && nf.holdLength > -1;
                 evTime.Add(t);
                 evPress.Add(isHoldHead ? 2 : 1);
             }
 
             int total = evTime.Count;
-            if (total == 0)
-            { _hitEvents = []; _hitEventCount = 0; return; }
+            if (total == 0) { _hitEvents = []; _hitEventCount = 0; return; }
 
-            var pieces = new List<PieceInfo>();
-            double nowT = 0.0;          // ← 从 0 开始！
+            // ── 时间片划分 ────────────────────────────
+            var pieces = new List<PieceInfo>(total);
+            BuildPieces(evTime, evPress, total, pieces);
+
+            // 哨兵片
+            if (pieces.Count > 0)
+            {
+                var lp = pieces[pieces.Count - 1];
+                pieces.Add(new PieceInfo(0, 1 - lp.Hand, lp.PieceLen,
+                                         lp.EndTime, lp.EndTime + lp.PieceLen, total));
+            }
+
+            // ── 生成 HitEvent 列表 ──────────
+            var output = GenerateHitEventsFromPieces(evTime, evPress, pieces, sim);
+
+            // ── 同键重叠修正─────────────
+            FixSameKeyOverlaps(output);
+
+            _hitEvents = [.. output];
+            _hitEventCount = _hitEvents.Length;
+
+            Log($"[Macro-Main] C# 手法模拟完成：{_hitEventCount} 事件，" +
+                $"{pieces.Count} 时间片，advBpm={GetAdviceBpm():F1}");
+        }
+
+        // ═══════════════════════════════════════════════════════════════════
+        //
+        //    · 副手触发倍乘时 back=1 → 回溯到上一片，改由主手重来
+        //    · multiple_counter 级联计数器（2^16/2^18 方案）
+        //    · change_speed 微变速自适应（由 TechniqueSpeedTolerance 控制）
+        // ═══════════════════════════════════════════════════════════════════
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        private static void BuildPieces(
+            List<double> evTime, List<int> evPress,
+            int total, List<PieceInfo> pieces)
+        {
+            double nowT = 0.0;
             int nowD = 0;
-            // 从设置中获取起始手偏好
-            int cHand = Main.Settings.TechniqueHandPreference == 0 ? -1 : 1; // 0:左手优先(-1), 1:右手优先(1)
+            int cHand = (Main.Settings.TechniqueHandPreference == 0) ? -1 : 1; // -1=左主, 1=右主
             double nowBpm = GetAdviceBpm();
             int mult = 0;
-            var mCnt = new int[8];
+            double changeTol = 0; // 微变速容差，默认0
+
+
+            // ── 倍乘级联计数器
+            var mCnt = new long[16];
+            var mCntPre = new long[16];  // 上一个时间片提交前的快照（回溯用）
+
+            int canMulti = 0;    // 是否可向前追溯
+            bool needBack = false; // 是否需要回溯
 
             while (nowD < total)
             {
@@ -1175,70 +1200,121 @@ namespace ADOFAIMacro.Macro
                 double pLen = 60.0 / (nowBpm * Math.Pow(2, mult)) / 2.0;
                 if (pLen < 1e-9) pLen = 1e-9;
 
-                // 统计本片内的事件数
-                /*
-                int cnt = 0;
-                while (cnt + nowD < total && evTime[cnt + nowD] < nowT + pLen * 0.995)
-                    cnt++;
-                */
+                // ── 微变速自适应────────────
+                // 在统计事件数之前，先检查时间边界是否"几乎对齐"下一个事件。
+                // 若下一个事件落在 (piece_end±changeTol) 范围内，动态修正 bpm。
+                if (changeTol > 1e-6 && nowD < total)
+                {
+                    int tryCnt = CountEventsInRange(evTime, nowD, nowT + pLen * (0.995 - changeTol));
+                    if (tryCnt > 0)
+                    {
+                        double nextT = evTime[nowD + tryCnt];
+                        double diff = Math.Abs(nextT - nowT - pLen);
+                        if (diff > pLen * 0.001 && diff < pLen * changeTol)
+                        {
+                            // 按 C++ 公式修正：now_bpm *= piece_time / (nextT - timedata[now_data][0])
+                            double span = nextT - evTime[nowD];
+                            if (span > 1e-9) nowBpm *= pLen / span;
+                            continue; // 用新 bpm 重新算 pLen
+                        }
+                    }
+                }
+
                 int cnt = CountEventsInRange(evTime, nowD, nowT + pLen * 0.995);
+                int csH = (cHand == 1) ? 1 : 0;  // 0=左, 1=右
+                int maxK = (csH == 0) ? _techLeftKeys.Length : _techRightKeys.Length;
+                int mainHand = (Main.Settings.TechniqueHandPreference == 0) ? -1 : 1;
+                bool isOffHand = (cHand != mainHand);
 
-                // 乘数检查
-                int csH = cHand == 1 ? 1 : 0;
-                int maxKeys = csH == 0 ? _techLeftKeys.Length : _techRightKeys.Length;
-                if (cnt > maxKeys)
+                // ── 按键数超限：提升倍乘
+                if (cnt > maxK)
                 {
-                    if (mult < 7)  // 还可以增加倍频
+                    // 副手触发倍乘 → 标记需要回溯到上一片重来
+                    if (canMulti == 1 && isOffHand)
+                        needBack = true;
+
+                    if (mult < 7)
                     {
-                        mult = Math.Min(mult + 1, 7);
-                        mCnt[mult] = 0;
-                        continue;
+                        mult++;
+                        mCnt[mult] = 0; // 重置新阶计数器
+                        continue;       // 用新倍乘重新统计
                     }
-                    else  // 已经最大倍频了，强制限制
+                    else
                     {
-                        cnt = maxKeys;
+                        cnt = maxK; // 已达最大倍乘，强制截断（C++ 无上限，此处保守处理）
                     }
                 }
 
-                // 确认时间片
-                pieces.Add(new PieceInfo(cnt, csH, pLen, nowT, nowT + pLen, nowD));
-
-                // 乘数降级计数器
-                if (mult > 0)
+                // ── 回溯──
+                if (needBack && pieces.Count > 0)
                 {
-                    mCnt[mult]++;
-                    if (mCnt[mult] >= 1 << (mult + 1)) { mCnt[mult] = 0; mult--; }
+                    needBack = false;
+                    cHand = (Main.Settings.TechniqueHandPreference == 0) ? -1 : 1; // 强制回到主手
+
+                    var prev = pieces[pieces.Count - 1];
+                    nowT = prev.StartTime;
+                    nowD = prev.EvStart;
+
+                    // 恢复计数器快照
+                    Array.Copy(mCntPre, mCnt, 16);
+
+                    // 以上一片的倍乘数 + 1 重新开始
+                    mult = prev.Multiplier + 1;
+                    if (mult > 7) mult = 7;
+
+                    pieces.RemoveAt(pieces.Count - 1); // 撤销上一个时间片
+                    canMulti = 0;
+                    continue;
                 }
+
+                // ── 提交时间片 ────────────────────────────────────────────
+                // 保存提交前的计数器快照（供下次可能的回溯使用）
+                Array.Copy(mCnt, mCntPre, 16);
+
+                pieces.Add(new PieceInfo(cnt, csH, pLen, nowT, nowT + pLen, nowD, mult));
+
+                // ── 更新级联倍乘计数器
+                //    从最高阶往低阶依次累加，表示越低阶的计数越快涨满归零
+                for (int c = mult; c > 0; c--)
+                {
+                    mCnt[c] += (long)Math.Pow(2, 16 - (mult - c));
+                    mCnt[c] %= (1L << 18); // 2^18 = 262144
+                }
+                // 检查是否可以降低倍乘（最高阶计数器归零 → 降一阶）
+                while (mult > 0 && mCnt[mult] == 0)
+                    mult--;
 
                 nowD += cnt;
                 nowT += pLen;
-                cHand = -cHand; // 交替手：1→-1→1→...
+                cHand = -cHand;
+                canMulti = 1;
 
-                // 微小误差矫正
+                // 微误差矫正
                 if (nowD < total && Math.Abs(evTime[nowD] - nowT) < pLen * 0.01)
                     nowT = evTime[nowD];
             }
+        }
 
-            // 哨兵片
-            if (pieces.Count > 0)
-            {
-                // 哨兵片，手值用 1 - lp.Hand 即可，反正 EvCount==0 会兜底
-                var lp = pieces[pieces.Count - 1];
-                pieces.Add(new PieceInfo(0, 1 - lp.Hand, lp.PieceLen,
-                    lp.EndTime, lp.EndTime + lp.PieceLen, nowD));
-            }
-
-            //   只由 (hand, 本片事件总数, 片内位置i) 决定，跨片不变
-            //
+        // 修改 BuildCSHarpTechniqueHitEvents 方法中的事件生成部分
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        private static List<HitEvent> GenerateHitEventsFromPieces(
+            List<double> evTime, List<int> evPress,
+            List<PieceInfo> pieces, bool sim)
+        {
+            int total = evTime.Count;
             var output = new List<HitEvent>(total * 2);
+
+            // 追踪当前活动的 hold
+            bool activeHold = false;
+            byte activeHoldKey = 0;
 
             for (int pcnt = 0; pcnt < pieces.Count - 1; pcnt++)
             {
                 var cur = pieces[pcnt];
                 var next = pieces[pcnt + 1];
 
-                // 上一片的 EndTime，无 restart 时等于 cur.StartTime
-                double pStart = pcnt > 0 ? pieces[pcnt - 1].EndTime : 0.0;
+                // 上一片的 EndTime（无 restart 时等于 cur.StartTime）
+                double pStart = (pcnt > 0) ? pieces[pcnt - 1].EndTime : 0.0;
 
                 for (int i = 0; i < cur.EvCount; i++)
                 {
@@ -1246,80 +1322,167 @@ namespace ADOFAIMacro.Macro
                     int press = evPress[idx];
                     double t = evTime[idx];
 
-                    // 我们直接发送松键事件
+                    // hold 尾：直接发松键事件
                     if (press == -1)
                     {
-                        output.Add(new HitEvent(t, 0, releaseOnly: true, isHoldRelated: true));
+                        if (activeHold)
+                        {
+                            output.Add(new HitEvent(t, 0, releaseOnly: true,
+                                isHoldRelated: true, releaseKeyCode: activeHoldKey));
+                            activeHold = false;
+                            activeHoldKey = 0;
+                        }
                         continue;
                     }
 
-                    // ── 键位分配──────────────────────────
-                    byte[] hK = cur.Hand == 0 ? _techLeftKeys : _techRightKeys;
-                    int[][] hO = cur.Hand == 0 ? _techKeyOrders[0] : _techKeyOrders[1];
-                    double[] hT = cur.Hand == 0 ? _techPressDur[0] : _techPressDur[1];
+                    // ── 键位分配 ─────────────────────────
+                    byte[] hK = (cur.Hand == 0) ? _techLeftKeys : _techRightKeys;
+                    int[][] hO = (cur.Hand == 0) ? _techKeyOrders[0] : _techKeyOrders[1];
+                    double[] hT = (cur.Hand == 0) ? _techPressDur[0] : _techPressDur[1];
 
-                    int oi = Math.Min(cur.EvCount - 1, hO.Length - 1);
+                    int oi = Math.Min(cur.EvCount - 1, hK.Length - 1);
                     int ki = (i < hO[oi].Length) ? hO[oi][i] : (i % hK.Length);
                     ki = Mathf.Clamp(ki, 0, hK.Length - 1);
 
                     byte kc = hK[ki];
-                    double ratio = ki < hT.Length ? hT[ki] : 0.8;
-                    bool hold = press == 2;
+                    double ratio = (ki < hT.Length) ? hT[ki] : 0.8;
 
-                    output.Add(new HitEvent(t, kc, false, hold));
+                    bool isHoldHead = (press == 2);
 
-                    // hold 头不插入定时松键（松键来自 hold 尾事件）
-                    if (!sim || hold) continue;
+                    // 如果是 hold 头部，先确保之前的 hold 被释放
+                    if (isHoldHead && activeHold)
+                    {
+                        // 强制释放之前的 hold
+                        output.Add(new HitEvent(t - 0.000001, 0, releaseOnly: true,
+                            isHoldRelated: true, releaseKeyCode: activeHoldKey));
+                        activeHold = false;
+                        activeHoldKey = 0;
+                    }
 
+                    // 添加按下事件
+                    output.Add(new HitEvent(t, kc, false, isHoldHead));
+
+                    // 如果是 hold 头部，记录状态
+                    if (isHoldHead)
+                    {
+                        activeHold = true;
+                        activeHoldKey = kc;
+                    }
+
+                    // hold 头不插入定时松键（等 hold 尾事件来）
+                    if (!sim || isHoldHead) continue;
+
+                    // ── 计算松键时间 ─────────────────────
                     double dur;
                     if (next.PieceLen > cur.PieceLen + 5e-6)
                     {
-                        // 下一片更慢
-                        if (pStart + cur.PieceLen > cur.EndTime + 5e-6)
-                            // 当前片被压缩（restart 情况）
-                            dur = (next.EndTime - t) * ratio / 2.0;
-                        else
-                            // 正常情况：(pieceStart + pieceLen*2 - t) * ratio / 2
-                            dur = (pStart + cur.PieceLen * 2.0 - t) * ratio / 2.0;
+                        dur = (pStart + cur.PieceLen > cur.EndTime + 5e-6)
+                            ? (next.EndTime - t) * ratio / 2.0
+                            : (pStart + cur.PieceLen * 2.0 - t) * ratio / 2.0;
                     }
                     else
                     {
-                        // 下一片更快或相同
-                        if (pStart + cur.PieceLen + 5e-6 < cur.EndTime)
-                            // 当前片被拉长（restart 情况）
-                            dur = (pStart + cur.PieceLen + next.PieceLen - t) * ratio / 2.0;
-                        else
-                            // 正常情况：(nextPiece.endTime - t) * ratio / 2
-                            dur = (next.EndTime - t) * ratio / 2.0;
+                        dur = (pStart + cur.PieceLen + 5e-6 < cur.EndTime)
+                            ? (pStart + cur.PieceLen + next.PieceLen - t) * ratio / 2.0
+                            : (next.EndTime - t) * ratio / 2.0;
                     }
 
                     double rel = t + dur;
 
-                    // 边界检查（-1 微秒 → -1e-6 秒）
+                    // 边界裁切
                     if (next.Hand != cur.Hand || next.EvCount == 0)
                     {
-                        // 换手或末尾：松键不超过下一片结束
                         if (rel >= next.EndTime) rel = next.EndTime - 1e-6;
                     }
                     else
                     {
-                        // 同手连续：松键不超过本片结束
                         if (rel >= cur.EndTime) rel = cur.EndTime - 1e-6;
                     }
 
-                    // 保底
+                    // 绝对保底
                     if (rel <= t) rel = t + (next.EndTime - t) * 0.4;
 
                     output.Add(new HitEvent(rel, 0, true, false, releaseKeyCode: kc));
                 }
             }
 
-            output.Sort((a, b) => a.TriggerTime.CompareTo(b.TriggerTime));
-            _hitEvents = [.. output];
-            _hitEventCount = _hitEvents.Length;
+            // 确保最后如果有活动的 hold，在音乐结束时释放
+            if (activeHold && pieces.Count > 0)
+            {
+                double lastTime = pieces[pieces.Count - 1].EndTime;
+                output.Add(new HitEvent(lastTime, 0, releaseOnly: true,
+                    isHoldRelated: true, releaseKeyCode: activeHoldKey));
+            }
 
-            Log($"[Macro-Main] BuildTechniqueHitEvents 完成：{_hitEventCount} 事件，" +
-                $"{pieces.Count} 时间片，advBpm={GetAdviceBpm():F1}");
+            return output;
+        }
+
+        // ═══════════════════════════════════════════════════════════════════
+        //  FixSameKeyOverlaps
+        //
+        //  同键 K 的松键事件，若松开时刻 >= 当前按下时刻，强行提前到
+        //
+        //  本函数在事件表排序后做一次扫描修正，O(n²) 对曲目规模完全可接受。
+        // ═══════════════════════════════════════════════════════════════════
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        private static void FixSameKeyOverlaps(List<HitEvent> events)
+        {
+            // 先按触发时间排序
+            events.Sort((a, b) => a.TriggerTime.CompareTo(b.TriggerTime));
+
+            int n = events.Count;
+
+            // pending[keyCode] = 最近一个按下该键的对应松键事件在 events 中的下标
+            // （只追踪普通键；hold 键由 IsHoldRelated 路径单独管理）
+            var pending = new Dictionary<byte, int>(8);
+
+            for (int i = 0; i < n; i++)
+            {
+                var ev = events[i];
+
+                if (ev.ReleaseOnly)
+                {
+                    // 松键事件：从 pending 中移除
+                    byte rk = ev.ReleaseKeyCode;
+                    if (rk != 0) pending.Remove(rk);
+                    continue;
+                }
+
+                byte kc = ev.KeyCode;
+                if (kc == 0) continue;
+
+                // 若该键还有未松开的记录，检查是否需要提前松键
+                if (pending.TryGetValue(kc, out int relIdx))
+                {
+                    var relEv = events[relIdx];
+                    // 若松键时刻 >= 当前按键时刻 → 强行提前
+                    if (relEv.TriggerTime >= ev.TriggerTime)
+                    {
+                        double fixedTime = ev.TriggerTime - 1e-6;
+                        events[relIdx] = new HitEvent(
+                            fixedTime,
+                            relEv.KeyCode,
+                            releaseOnly: true,
+                            isHoldRelated: relEv.IsHoldRelated,
+                            releaseKeyCode: relEv.ReleaseKeyCode);
+                    }
+                    pending.Remove(kc);
+                }
+
+                // 为当前按键事件找到对应的松键事件（向后扫描）
+                for (int j = i + 1; j < n; j++)
+                {
+                    var fwd = events[j];
+                    if (fwd.ReleaseOnly && fwd.ReleaseKeyCode == kc && !fwd.IsHoldRelated)
+                    {
+                        pending[kc] = j;
+                        break;
+                    }
+                }
+            }
+
+            // 修正后重新排序（提前的松键事件可能打乱顺序）
+            events.Sort((a, b) => a.TriggerTime.CompareTo(b.TriggerTime));
         }
 
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
