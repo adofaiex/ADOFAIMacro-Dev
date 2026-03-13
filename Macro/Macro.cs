@@ -23,7 +23,7 @@ namespace BaseMacro.Macro
         //  在 Initialize() 阶段一次性算好：触发时间、按哪个键、是否只松键
         //  工作线程热路径不再碰任何 floor 对象
         // ─────────────────────────────────────────────
-        private readonly struct HitEvent(double triggerTime, byte keyCode, bool releaseOnly,
+        internal readonly struct HitEvent(double triggerTime, byte keyCode, bool releaseOnly,
                                           bool isHoldRelated = false, byte releaseKeyCode = 0)
         {
             public readonly double TriggerTime = triggerTime;
@@ -52,7 +52,7 @@ namespace BaseMacro.Macro
         private static scrFloor[]? cachedFloors;
         private static bool initialized = false;
         private static string lastKeysSetting = "";
-        private static readonly List<byte> keyCodes = new(4);
+        private static readonly List<byte> keyCodes = [with(4)];
         private static int _keyCodesVersion = 0;
 
         // ─────────────────────────────────────────────
@@ -1048,6 +1048,92 @@ namespace BaseMacro.Macro
             bool sim = Main.Settings.SimulateKeyPress;
 
             // ══ 第一步：收集原始事件 ════════════════════════════════════
+            var evTime = new List<double>(floors.Length);
+            var evPress = new List<int>(floors.Length);
+
+            for (int i = 0; i < floors.Length - 1; i++)
+            {
+                var fl = floors[i];
+                if (fl == null) continue;
+                if ((fl.nextfloor?.auto ?? false) || fl.midSpin) continue;
+
+                var nf = floors[i + 1];
+                double t = nf?.entryTime ?? double.MaxValue;
+
+                // hold 尾：当前格正在hold，下一格结束hold
+                if (sim && fl.holdLength > -1 && nf != null && nf.holdLength == -1)
+                { evTime.Add(t); evPress.Add(-1); continue; }
+
+                // hold 头：下一格开始hold
+                bool isHoldHead = sim && nf != null && nf.holdLength > -1;
+                evTime.Add(t);
+                evPress.Add(isHoldHead ? 2 : 1);
+            }
+
+            int total = evTime.Count;
+            if (total == 0)
+            { _hitEvents = []; _hitEventCount = 0; return; }
+
+#if DEBUG
+            // DEBUG模式下，通过设置一个标志来控制使用C++还是C#版本
+            bool useCppVersion = Main.Settings.UseCppTechniqueInDebug;
+#else
+            bool useCppVersion = true; // 正式版默认使用C++
+#endif
+            if (useCppVersion)
+            {
+                // ========== 尝试使用C++ DLL ==========
+                try
+                {
+                    // 更新配置到TechniqueSimulator
+                    TechniqueSimulator.UpdateConfig(
+                        _techLeftKeys,
+                        _techRightKeys,
+                        _techKeyOrders[0],
+                        _techKeyOrders[1],
+                        _techPressDur[0],
+                        _techPressDur[1],
+                        Main.Settings.TechniqueBpmLimit,
+                        Main.Settings.TechniqueHandPreference);
+
+                    // 尝试使用DLL版本
+                    if (TechniqueSimulator.BuildHitEvents(
+                        [.. evTime],
+                        [.. evPress],
+                        total,
+                        conductor!.bpm,
+                        ADOBase.controller.speed,
+                        conductor.song.pitch,
+                        out var nativeEvents))
+                    {
+                        _hitEvents = nativeEvents;
+                        _hitEventCount = nativeEvents!.Length;
+                        Log($"[Macro-Main] 使用C++手法模拟完成：{_hitEventCount} 事件");
+                        return;
+                    }
+                }
+                catch (Exception ex)
+                {
+                    Log($"[Macro-Main] C++手法模拟异常: {ex.Message}，使用C#版本");
+                }
+            }
+
+            // ========== DLL失败，使用C#版本 ==========
+#if DEBUG
+            BuildCTechniqueHitEvents();
+#endif
+        }
+
+#if DEBUG
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        private static void BuildCTechniqueHitEvents()
+        {
+            ParseTechniqueConfig();
+
+            var floors = cachedFloors!;
+            bool sim = Main.Settings.SimulateKeyPress;
+
+            // ══ 第一步：收集原始事件 ════════════════════════════════════
             var evTime = new List<double>();
             var evPress = new List<int>();
 
@@ -1257,7 +1343,7 @@ namespace BaseMacro.Macro
 
             return left - start;
         }
-
+#endif
         // ═══════════════════════════════════════════════════════════════
         //  生命周期
         // ═══════════════════════════════════════════════════════════════
@@ -1413,9 +1499,14 @@ namespace BaseMacro.Macro
         //  日志（仅 DEBUG）
         // ═══════════════════════════════════════════════════════════════
         [System.Diagnostics.Conditional("DEBUG")]
-        public static void Log(string message) => Main.Mod?.Logger.Log(message);
+        public static void Log(string message)
+        {
+            bool logToMod = false;
+            if (logToMod)
+                Main.Mod?.Logger.Log(message);
+        }
     }
 
-    #endregion
+#endregion
 #pragma warning restore CS0420
 }

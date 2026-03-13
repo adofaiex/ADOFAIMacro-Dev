@@ -1,4 +1,5 @@
-﻿using HarmonyLib;
+﻿using BaseMacro.Macro;
+using HarmonyLib;
 using Newgrounds;
 using System;
 using System.Collections.Generic;
@@ -1050,20 +1051,150 @@ namespace BaseMacro
             p.handPreference = TechniqueHandPreference;
         }
 
+        // DEBUG模式下使用的选项
+#if DEBUG
+        private bool _useCppTechniqueInDebug = true; // 默认使用C++版本
+        public bool UseCppTechniqueInDebug
+        {
+            get => _useCppTechniqueInDebug;
+            set
+            {
+                if (_useCppTechniqueInDebug == value) return;
+                _useCppTechniqueInDebug = value;
+            }
+        }
+#endif
+
         private void DrawTechniqueSimCard()
         {
             GUILayout.BeginVertical(UIUtils.CardStyle);
             GUILayout.Label(UseChinese ? "手法模拟" : "Technique Simulation", UIUtils.HeaderStyle);
             GUILayout.Space(2);
 
+            // 检查DLL状态
+            bool dllLoaded = TechniqueSimulator.IsDllLoaded();
+
+            GUILayout.BeginHorizontal();
+
+#if DEBUG
+            // DEBUG模式显示版本信息和开关
+            GUILayout.BeginVertical(); // 垂直布局容纳多行
+
+            // 第一行：调试模式状态
+            GUILayout.BeginHorizontal();
+            string versionInfo = UseChinese
+                ? $"🔧 调试模式 - {(dllLoaded ? "DLL可用" : "DLL不可用")}"
+                : $"🔧 Debug Mode - {(dllLoaded ? "DLL Available" : "DLL Unavailable")}";
+            GUIStyle versionStyle = new(UIUtils.LabelStyle);
+            versionStyle.normal.textColor = new Color(0.3f, 0.6f, 1f, 0.8f);
+            GUILayout.Label(versionInfo, versionStyle);
+            GUILayout.EndHorizontal();
+
+            // 第二行：C++/C#切换开关（仅当DLL可用时显示）
+            if (dllLoaded)
+            {
+                GUILayout.BeginHorizontal();
+                GUILayout.Space(20); // 缩进
+
+                bool newUseCpp = UIUtils.M3Switch(UseCppTechniqueInDebug,
+                    UseChinese ? "使用C++版本" : "Use C++ Version");
+                if (newUseCpp != UseCppTechniqueInDebug)
+                {
+                    UseCppTechniqueInDebug = newUseCpp;
+                    // 可以在这里添加提示
+                    BaseMacro.Macro.Macro.Log($"[Macro] 手法模拟切换到{(newUseCpp ? "C++" : "C#")}版本");
+                }
+
+                GUILayout.EndHorizontal();
+            }
+            else
+            {
+                // DLL不可用时显示提示
+                GUILayout.BeginHorizontal();
+                GUILayout.Space(20);
+                GUIStyle warnStyle = new(UIUtils.LabelStyle);
+                warnStyle.normal.textColor = new Color(0.8f, 0.5f, 0.5f, 0.8f);
+                warnStyle.fontSize = 10;
+                GUILayout.Label(UseChinese
+                    ? "⚠️ DLL不可用，将使用C#版本"
+                    : "⚠️ DLL unavailable, using C# version",
+                    warnStyle);
+                GUILayout.EndHorizontal();
+            }
+
+            GUILayout.EndVertical(); // 结束垂直布局
+
+#else
+            // 正式版只显示状态
+            string dllStatus = dllLoaded
+                ? (UseChinese ? "✅ C++原生DLL已加载" : "✅ C++ Native DLL Loaded")
+                : (UseChinese ? "❌ 检测不到手法模拟库" : "❌ Technique simulation library not found");
+            if (!dllLoaded)
+                Main.Settings.EnableTechniqueSimulation = false; // 强制禁用
+
+            GUIStyle statusStyle = new(UIUtils.LabelStyle);
+            statusStyle.normal.textColor = dllLoaded ? new Color(0.3f, 0.8f, 0.3f) : new Color(0.8f, 0.3f, 0.3f);
+            GUILayout.Label(dllStatus, statusStyle);
+#endif
+
+            GUILayout.EndHorizontal();
+            GUILayout.Space(4);
+
+            // 保存GUI状态
+            bool oldEnabled = GUI.enabled;
+
+#if !DEBUG
+            // 正式版且DLL未加载时禁用
+            if (!dllLoaded)
+            {
+                GUI.enabled = false;
+            }
+#endif
+
             bool newEnable = UIUtils.M3Switch(EnableTechniqueSimulation,
                 UseChinese ? "启用手法模拟（左右手交替）" : "Enable Technique Simulation (L/R alternation)");
-            if (newEnable != EnableTechniqueSimulation)
+
+            // 恢复GUI状态
+            GUI.enabled = oldEnabled;
+
+#if !DEBUG
+            // 只有启用时才允许修改
+            if (dllLoaded && newEnable != EnableTechniqueSimulation)
             {
                 EnableTechniqueSimulation = newEnable;
             }
+#else
+            if (newEnable != EnableTechniqueSimulation)
+            {
+            EnableTechniqueSimulation = newEnable;
+            }
+#endif
 
-            if (!EnableTechniqueSimulation) { GUILayout.EndVertical(); return; }
+            // 如果DLL未加载且是正式版，显示提示信息后直接返回
+#if !DEBUG
+            if (!dllLoaded)
+            {
+                GUILayout.Space(4);
+                GUIStyle warningStyle = new(UIUtils.LabelStyle)
+                {
+                    fontSize = 11,
+                    wordWrap = true,
+                    normal = { textColor = new Color(0.8f, 0.3f, 0.3f, 0.8f) }
+                };
+                GUILayout.Label(UseChinese
+                    ? "请将 TechniqueSimulator.dll 放在 Mods/BaseMacro/ 目录下"
+                    : "Please place TechniqueSimulator.dll in Mods/BaseMacro/ directory",
+                    warningStyle);
+                GUILayout.EndVertical();
+                return;
+            }
+#endif
+
+            if (!EnableTechniqueSimulation)
+            {
+                GUILayout.EndVertical();
+                return;
+            }
 
             // 确保至少有一个配置
             if (_techniqueProfiles.Count == 0)

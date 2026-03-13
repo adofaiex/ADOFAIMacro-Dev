@@ -50,6 +50,16 @@ namespace BaseMacro
                 modEntry.Logger.Log("[InputSystem] 当前使用传统输入模拟");
             }
 
+            if (TechniqueSimulator.LoadTechniqueDll())
+            {
+                modEntry.Logger.Log("[TechniqueSimulator] 技巧模拟器 DLL 加载成功");
+
+            }
+            else
+            {
+                modEntry.Logger.Log("[TechniqueSimulator] 技巧模拟器 DLL 加载失败");
+            }
+
             modEntry.OnToggle = OnToggle;
             modEntry.OnGUI = Settings.OnGUI;
             modEntry.OnSaveGUI = Settings.OnSaveGUI;
@@ -125,6 +135,7 @@ namespace BaseMacro
                 Harmony?.UnpatchAll();
                 TrySetWindowTitle(null);
                 InputSystem.EmergencyStop();
+                TechniqueSimulator.Unload();
             }
             return true;
         }
