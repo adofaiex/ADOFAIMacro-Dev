@@ -114,15 +114,10 @@ namespace ADOFAIMacro
                     Mod?.Logger.Error("Detected BaseMacro, which is incompatible. Exiting...");
                     Application.Quit();
                 }
-                Mod?.Info.IsCheat = true;
-                if (Mod!.Info.IsCheat)
-                {
-                    Mod.Info.DisplayName += " (Cheat)";
-                }
                 if (IsDebugAssembly())
-                    Mod.Info.DisplayName += " <color=grey>(Debug)</color>";
+                    Mod?.Info.DisplayName += " <color=grey>(Debug)</color>";
                 if (Settings.IsBeta)
-                    Mod.Info.Version += $"\nBeta{Settings.BetaVersion}";
+                    Mod?.Info.Version += $"\nBeta{Settings.BetaVersion}";
 
                 IsEnabled = true;
                 Harmony?.PatchAll(Assembly.GetExecutingAssembly());
