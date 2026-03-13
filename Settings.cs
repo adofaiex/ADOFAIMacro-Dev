@@ -1102,7 +1102,7 @@ namespace ADOFAIMacro
                 {
                     UseCppTechniqueInDebug = newUseCpp;
                     // 可以在这里添加提示
-                    BaseMacro.Macro.Macro.Log($"[Macro] 手法模拟切换到{(newUseCpp ? "C++" : "C#")}版本");
+                    ADOFAIMacro.Macro.Macro.Log($"[Macro] 手法模拟切换到{(newUseCpp ? "C++" : "C#")}版本");
                 }
 
                 GUILayout.EndHorizontal();
