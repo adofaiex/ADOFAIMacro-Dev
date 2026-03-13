@@ -989,8 +989,8 @@ namespace ADOFAIMacro
             string cleanTitle = Main.Mod.Info.Version.Replace('\n', ' ').Replace('\r', ' ');
             // 更新内容
             string logText = UseChinese ?
-                $"<b>版本 {cleanTitle}</b>\n• 优化 UI 布局\n• 修复若干 bug\n• 支持手法模拟" :
-                $"<b>Version {cleanTitle}</b>\n• Improved UI layout\n• Fixed several bugs\n• Support technique simulation";
+                $"<b>版本 {cleanTitle}</b>\n• 手法模拟优化和修复" :
+                $"<b>Version {cleanTitle}</b>\n• Technique Simulation Optimization and Repair";
 
             GUILayout.Label(logText, logStyle);
             GUILayout.EndScrollView();
