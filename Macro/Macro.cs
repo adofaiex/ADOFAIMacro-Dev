@@ -1,4 +1,5 @@
 ﻿using Microsoft.SqlServer.Server;
+using OggVorbisEncoder.Setup;
 using System;
 using System.Collections.Generic;
 using System.Linq;
@@ -183,6 +184,8 @@ namespace ADOFAIMacro.Macro
         private static int[][][] _techKeyOrders = { [], [] };
         // [hand][keyIndex] → 按下时长占比(0~1)
         private static double[][] _techPressDur = { [], [] };
+
+        private static List<Settings.TechniqueSegment>? _currentSegments;
 
         [ThreadStatic]
         private static SkyHookSystem.INPUT _cachedInput;
@@ -975,15 +978,23 @@ namespace ADOFAIMacro.Macro
         {
             var s = Main.Settings;
 
-            // 解析左右手按键
             _techLeftKeys = ParseTechKeyList(s.TechLeftHandKeys);
             _techRightKeys = ParseTechKeyList(s.TechRightHandKeys);
-
-            // 确保按键顺序数组大小正确
             _techKeyOrders[0] = ParseTechOrders(s.TechLeftHandOrders, _techLeftKeys.Length);
             _techKeyOrders[1] = ParseTechOrders(s.TechRightHandOrders, _techRightKeys.Length);
             _techPressDur[0] = ParseTechPressTimes(s.TechLeftHandPressTimes, _techLeftKeys.Length);
             _techPressDur[1] = ParseTechPressTimes(s.TechRightHandPressTimes, _techRightKeys.Length);
+
+            // 获取当前配置的分段列表
+            var profiles = s.TechniqueProfiles;
+            if (profiles != null && profiles.Count > 0 && s.SelectedTechniqueProfileIndex >= 0 && s.SelectedTechniqueProfileIndex < profiles.Count)
+            {
+                _currentSegments = profiles[s.SelectedTechniqueProfileIndex].techniqueSegments;
+            }
+            else
+            {
+                _currentSegments = new List<Settings.TechniqueSegment>();
+            }
         }
 
 
@@ -1030,13 +1041,27 @@ namespace ADOFAIMacro.Macro
             return result;
         }
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        private static double GetAdviceBpm()
+        private static double GetAdviceBpm(double limit)
         {
             double bpm = (double)(conductor!.bpm * ADOBase.controller.speed * conductor.song.pitch);
-            double limit = (double)Main.Settings.TechniqueBpmLimit;
             while (bpm > limit) bpm /= 2.0;
             while (bpm <= limit / 2.0) bpm *= 2.0;
             return bpm;
+        }
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        private static double GetAdviceBpm() => GetAdviceBpm(Main.Settings.TechniqueBpmLimit);
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        private static float GetSegmentBpmLimit(int floorIdx)
+        {
+            if (_currentSegments != null)
+            {
+                foreach (var seg in _currentSegments)
+                {
+                    if (floorIdx >= seg.startFloor && floorIdx <= seg.endFloor)
+                        return seg.bpmLimit;
+                }
+            }
+            return Main.Settings.TechniqueBpmLimit;
         }
 
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
@@ -1049,6 +1074,7 @@ namespace ADOFAIMacro.Macro
 
             var evTime = new List<double>(floors.Length);
             var evPress = new List<int>(floors.Length);
+            var evFloor = new List<int>(floors.Length);
 
             for (int i = 0; i < floors.Length - 1; i++)
             {
@@ -1060,11 +1086,17 @@ namespace ADOFAIMacro.Macro
                 double t = nf?.entryTime ?? double.MaxValue;
 
                 if (sim && fl.holdLength > -1 && nf != null && nf.holdLength == -1)
-                { evTime.Add(t); evPress.Add(-1); continue; }
+                {
+                    evTime.Add(t);
+                    evPress.Add(-1);
+                    evFloor.Add(i);
+                    continue;
+                }
 
                 bool isHoldHead = sim && nf != null && nf.holdLength > -1;
                 evTime.Add(t);
                 evPress.Add(isHoldHead ? 2 : 1);
+                evFloor.Add(i);  // 记录地板索引
             }
 
             int total = evTime.Count;
@@ -1079,22 +1111,31 @@ namespace ADOFAIMacro.Macro
             {
                 try
                 {
+                    // 获取当前配置的分段列表
+                    var currentProfile = Main.Settings.TechniqueProfiles[Main.Settings.SelectedTechniqueProfileIndex];
+                    var segments = currentProfile.techniqueSegments.ToArray();
+
                     TechniqueSimulator.UpdateConfig(
                         _techLeftKeys, _techRightKeys,
                         _techKeyOrders[0], _techKeyOrders[1],
                         _techPressDur[0], _techPressDur[1],
-                        Main.Settings.TechniqueBpmLimit,
-                        Main.Settings.TechniqueHandPreference);
+                        Main.Settings.TechniqueBpmLimit, // 全局阈值
+                        Main.Settings.TechniqueHandPreference,
+                        segments);  // 传入分段数组
 
                     if (TechniqueSimulator.BuildHitEvents(
-                            [.. evTime], [.. evPress], total,
-                            conductor!.bpm, ADOBase.controller.speed,
+                            [.. evTime],
+                            [.. evPress],
+                            [.. evFloor],  // 传入地板索引
+                            total,
+                            conductor!.bpm,
+                            ADOBase.controller.speed,
                             conductor.song.pitch,
                             out var nativeEvents))
                     {
                         _hitEvents = nativeEvents;
                         _hitEventCount = nativeEvents!.Length;
-                        Log($"[Macro-Main] C++ 手法模拟完成：{_hitEventCount} 事件");
+                        Log($"[Macro-Main] C++ 手法模拟（原生分段）完成：{_hitEventCount} 事件");
                         return;
                     }
                 }
@@ -1122,6 +1163,8 @@ namespace ADOFAIMacro.Macro
             var evTime = new List<double>(floors.Length);
             var evPress = new List<int>(floors.Length);
 
+            var evFloor = new List<int>(floors.Length);
+
             for (int i = 0; i < floors.Length - 1; i++)
             {
                 var fl = floors[i];
@@ -1132,11 +1175,17 @@ namespace ADOFAIMacro.Macro
                 double t = nf?.entryTime ?? double.MaxValue;
 
                 if (sim && fl.holdLength > -1 && nf != null && nf.holdLength == -1)
-                { evTime.Add(t); evPress.Add(-1); continue; }
+                {
+                    evTime.Add(t);
+                    evPress.Add(-1);
+                    evFloor.Add(i);
+                    continue;
+                }
 
                 bool isHoldHead = sim && nf != null && nf.holdLength > -1;
                 evTime.Add(t);
                 evPress.Add(isHoldHead ? 2 : 1);
+                evFloor.Add(i);  // 记录地板索引
             }
 
             int total = evTime.Count;
@@ -1144,7 +1193,7 @@ namespace ADOFAIMacro.Macro
 
             // ── 时间片划分 ────────────────────────────
             var pieces = new List<PieceInfo>(total);
-            BuildPieces(evTime, evPress, total, pieces);
+            BuildPieces(evTime, evPress, evFloor, total, pieces);
 
             // 哨兵片
             if (pieces.Count > 0)
@@ -1175,13 +1224,13 @@ namespace ADOFAIMacro.Macro
         // ═══════════════════════════════════════════════════════════════════
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
         private static void BuildPieces(
-            List<double> evTime, List<int> evPress,
+            List<double> evTime, List<int> evPress, List<int> evFloor,
             int total, List<PieceInfo> pieces)
         {
             double nowT = 0.0;
             int nowD = 0;
             int cHand = (Main.Settings.TechniqueHandPreference == 0) ? -1 : 1; // -1=左主, 1=右主
-            double nowBpm = GetAdviceBpm();
+            //double nowBpm = GetAdviceBpm();
             int mult = 0;
             double changeTol = 0; // 微变速容差，默认0
 
@@ -1193,8 +1242,26 @@ namespace ADOFAIMacro.Macro
             int canMulti = 0;    // 是否可向前追溯
             bool needBack = false; // 是否需要回溯
 
+            float lastSegLimit = GetSegmentBpmLimit(evFloor[0]);
+            double nowBpm = GetAdviceBpm(lastSegLimit);
+
             while (nowD < total)
             {
+
+                // 获取当前地板索引对应的阈值
+                int curFloorIdx = evFloor[nowD];
+                float curSegLimit = GetSegmentBpmLimit(curFloorIdx);
+
+                // 如果阈值发生变化，重置倍乘状态
+                if (Math.Abs(curSegLimit - lastSegLimit) > 1e-6f)
+                {
+                    mult = 0;
+                    Array.Clear(mCnt, 0, mCnt.Length);
+                    Array.Clear(mCntPre, 0, mCntPre.Length);
+                    lastSegLimit = curSegLimit;
+                    nowBpm = GetAdviceBpm(curSegLimit);
+                }
+
                 if (pieces.Count > total * 64) break; // 防死循环守卫
 
                 double pLen = 60.0 / (nowBpm * Math.Pow(2, mult)) / 2.0;

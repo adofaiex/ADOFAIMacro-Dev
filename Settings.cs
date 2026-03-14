@@ -28,10 +28,10 @@ namespace ADOFAIMacro
             public string leftHandPressTimes = "0.8,0.8";
             public string rightHandPressTimes = "0.8,0.8";
             public int handPreference = 1; // 0=左手优先, 1=右手优先
+            public List<TechniqueSegment> techniqueSegments = new List<TechniqueSegment>(); // 新增
 
-            public TechniqueProfile() { } // 无参构造用于序列化
+            public TechniqueProfile() { }
 
-            // 克隆方法，用于新建配置时复制当前值
             public TechniqueProfile Clone()
             {
                 return new TechniqueProfile
@@ -43,10 +43,37 @@ namespace ADOFAIMacro
                     rightHandOrders = this.rightHandOrders,
                     leftHandPressTimes = this.leftHandPressTimes,
                     rightHandPressTimes = this.rightHandPressTimes,
-                    handPreference = this.handPreference
+                    handPreference = this.handPreference,
+                    techniqueSegments = this.techniqueSegments.Select(s => new TechniqueSegment
+                    {
+                        startFloor = s.startFloor,
+                        endFloor = s.endFloor,
+                        bpmLimit = s.bpmLimit
+                    }).ToList()
                 };
             }
         }
+
+        [Serializable]
+        public class TechniqueSegment
+        {
+            public int startFloor;   // 起始地板编号（包含）
+            public int endFloor;     // 结束地板编号（包含）
+            public float bpmLimit;   // 该段的 BPM 阈值
+                                     // 可扩展：左右手按键、顺序等
+        }
+        public List<TechniqueSegment> techniqueSegments = new List<TechniqueSegment>();
+        private class SegmentEditState
+        {
+            public string startInput = "";
+            public bool startFocused;
+            public string endInput = "";
+            public bool endFocused;
+            public string bpmInput = "";
+            public bool bpmFocused;
+        }
+        private List<SegmentEditState> _segmentEditStates = new List<SegmentEditState>();
+
         public event Action<bool> OnMacroChanged;
 
         private bool _useChinese = true;  // 默认中文
@@ -1276,7 +1303,7 @@ namespace ADOFAIMacro
             // 速度阈值
             GUILayout.BeginHorizontal();
             TechniqueBpmLimit = UIUtils.M3HorizontalSliderWithLabelAndInput(
-                UseChinese ? "速度阈值 (BPM)" : "Speed Threshold (BPM)",
+                UseChinese ? "全局·速度阈值 (BPM)" : "Global · Speed Threshold (BPM)",
                 TechniqueBpmLimit, 50f, 2000f,
                 ref _techBpmState.input, ref _techBpmState.focused,
                 "F0", 140, 220, 70);
@@ -1291,6 +1318,8 @@ namespace ADOFAIMacro
             GUILayout.Label(UseChinese
                 ? "超过此BPM时自动细分时间片，允许同一只手连续承担多个事件"
                 : "Above this BPM, time slices are subdivided so one hand handles multiple events", tipStyle);
+
+            DrawTechniqueSegments();
 
             GUILayout.Space(8);
 
@@ -1434,6 +1463,73 @@ namespace ADOFAIMacro
             GUILayout.EndVertical();
         }
 
+        private void DrawTechniqueSegments()
+        {
+            var currentProfile = _techniqueProfiles[SelectedTechniqueProfileIndex];
+            var segments = currentProfile.techniqueSegments;
+
+            // 确保状态列表与分段数量一致
+            while (_segmentEditStates.Count < segments.Count)
+                _segmentEditStates.Add(new SegmentEditState());
+            while (_segmentEditStates.Count > segments.Count)
+                _segmentEditStates.RemoveAt(_segmentEditStates.Count - 1);
+
+            GUILayout.Label(UseChinese ? "变速分段设置" : "Speed Segments", UIUtils.HeaderStyle);
+
+            for (int i = 0; i < segments.Count; i++)
+            {
+                var seg = segments[i];
+                var state = _segmentEditStates[i];
+
+                GUILayout.BeginHorizontal();
+
+                GUILayout.Label($"段 {i + 1}:", UIUtils.LabelStyle, GUILayout.Width(40));
+
+                string newStart = UIUtils.M3TextField(
+                    seg.startFloor.ToString(),
+                    ref state.startInput,
+                    ref state.startFocused,
+                    UIUtils.TextFieldStyle,
+                    $"SegStart_{i}",
+                    GUILayout.Width(50)
+                );
+                if (int.TryParse(newStart, out int newStartVal))
+                    seg.startFloor = newStartVal;
+
+                GUILayout.Label(" ~ ", UIUtils.LabelStyle, GUILayout.Width(20));
+
+                string newEnd = UIUtils.M3TextField(
+                    seg.endFloor.ToString(),
+                    ref state.endInput,
+                    ref state.endFocused,
+                    UIUtils.TextFieldStyle,
+                    $"SegEnd_{i}",
+                    GUILayout.Width(50)
+                );
+                if (int.TryParse(newEnd, out int newEndVal))
+                    seg.endFloor = newEndVal;
+
+                seg.bpmLimit = UIUtils.M3HorizontalSliderWithLabelAndInput(
+                    "", seg.bpmLimit, 50f, 2000f,
+                    ref state.bpmInput, ref state.bpmFocused,
+                    "F0", 0, 80, 60
+                );
+
+                if (GUILayout.Button("X", UIUtils.ButtonStyle, GUILayout.Width(40)))
+                {
+                    segments.RemoveAt(i);
+                    _segmentEditStates.RemoveAt(i);
+                    i--;
+                }
+
+                GUILayout.EndHorizontal();
+            }
+
+            if (GUILayout.Button(UseChinese ? "添加分段" : "Add Segment", UIUtils.ButtonStyle))
+            {
+                segments.Add(new TechniqueSegment());
+            }
+        }
         public void OnSaveGUI(UnityModManager.ModEntry modEntry) => Save(modEntry);
         public override void Save(UnityModManager.ModEntry modEntry) => Save(this, modEntry);
         public static Settings Load(UnityModManager.ModEntry modEntry) => Load<Settings>(modEntry);

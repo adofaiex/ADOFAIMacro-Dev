@@ -61,8 +61,10 @@ namespace ADOFAIMacro.Macro
             public int RightOrderCounts;
             public IntPtr LeftPressTimes;
             public IntPtr RightPressTimes;
-            public double BpmLimit;
+            public double BpmLimit;          // 全局阈值
             public int HandPreference;
+            public IntPtr Segments;           // 分段数组指针
+            public int SegmentCount;           // 分段数量
         }
 
         // 委托定义
@@ -73,6 +75,7 @@ namespace ADOFAIMacro.Macro
         private delegate IntPtr DelegateBuildTechEvents(
             [In] double[] entryTimes,
             [In] int[] pressTypes,
+            [In] int[] floorIndices,   // 新增
             int eventCount,
             double bpm,
             double speed,
@@ -81,6 +84,14 @@ namespace ADOFAIMacro.Macro
 
         [UnmanagedFunctionPointer(CallingConvention.Cdecl)]
         private delegate void DelegateFreeTechEvents(IntPtr events);
+
+        [StructLayout(LayoutKind.Sequential, Pack = 8)]
+        private struct NativeTechniqueSegment
+        {
+            public int startFloor;
+            public int endFloor;
+            public double bpmLimit;
+        }
 
         // Kernel32函数
         [DllImport("kernel32.dll", SetLastError = true, CharSet = CharSet.Auto)]
@@ -95,10 +106,8 @@ namespace ADOFAIMacro.Macro
         /// <summary>
         /// 更新配置缓存
         /// </summary>
-        /// <summary>
-        /// 更新配置缓存
-        /// </summary>
-        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        private static Settings.TechniqueSegment[]? _cachedSegments;
+
         public static void UpdateConfig(
             byte[] leftKeys,
             byte[] rightKeys,
@@ -107,7 +116,8 @@ namespace ADOFAIMacro.Macro
             double[] leftPressTimes,
             double[] rightPressTimes,
             double bpmLimit,
-            int handPreference)
+            int handPreference,
+            Settings.TechniqueSegment[] segments) // 新增
         {
             _cachedLeftKeys = leftKeys;
             _cachedRightKeys = rightKeys;
@@ -117,6 +127,7 @@ namespace ADOFAIMacro.Macro
             _cachedRightPressTimes = rightPressTimes;
             _cachedBpmLimit = (int)bpmLimit;
             _cachedHandPreference = handPreference;
+            _cachedSegments = segments;
         }
 
         /// <summary>
@@ -192,7 +203,8 @@ namespace ADOFAIMacro.Macro
             var config = new NativeTechniqueConfig
             {
                 BpmLimit = _cachedBpmLimit,
-                HandPreference = _cachedHandPreference
+                HandPreference = _cachedHandPreference,
+                SegmentCount = _cachedSegments?.Length ?? 0
             };
 
             try
@@ -224,6 +236,23 @@ namespace ADOFAIMacro.Macro
                     config.RightPressTimes = Marshal.AllocCoTaskMem(_cachedRightPressTimes.Length * sizeof(double));
                     Marshal.Copy(_cachedRightPressTimes, 0, config.RightPressTimes, _cachedRightPressTimes.Length);
                 }
+
+                if (_cachedSegments != null && _cachedSegments.Length > 0)
+                {
+                    int segSize = Marshal.SizeOf<NativeTechniqueSegment>();
+                    config.Segments = Marshal.AllocCoTaskMem(segSize * _cachedSegments.Length);
+                    for (int i = 0; i < _cachedSegments.Length; i++)
+                    {
+                        var nativeSeg = new NativeTechniqueSegment
+                        {
+                            startFloor = _cachedSegments[i].startFloor,
+                            endFloor = _cachedSegments[i].endFloor,
+                            bpmLimit = _cachedSegments[i].bpmLimit
+                        };
+                        Marshal.StructureToPtr(nativeSeg, IntPtr.Add(config.Segments, i * segSize), false);
+                    }
+                }
+
 
                 return config;
             }
@@ -328,6 +357,9 @@ namespace ADOFAIMacro.Macro
 
             if (config.RightOrderLengths != IntPtr.Zero)
                 Marshal.FreeCoTaskMem(config.RightOrderLengths);
+
+            if (config.Segments != IntPtr.Zero)
+                Marshal.FreeCoTaskMem(config.Segments);
         }
 
         /// <summary>
@@ -337,6 +369,7 @@ namespace ADOFAIMacro.Macro
         public static bool BuildHitEvents(
             double[] entryTimes,
             int[] pressTypes,
+            int[] floorIndices,
             int eventCount,
             double bpm,
             double speed,
@@ -362,6 +395,7 @@ namespace ADOFAIMacro.Macro
                 nativeEvents = _buildTechEvents!(
                     entryTimes,
                     pressTypes,
+                    floorIndices,
                     eventCount,
                     bpm,
                     speed,
