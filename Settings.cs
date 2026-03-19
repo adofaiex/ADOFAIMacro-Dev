@@ -11,12 +11,13 @@ using UnityModManagerNet;
 namespace ADOFAIMacro
 {
     /// <summary>
-    /// Mod settings class
-    /// Mod 设置类
+    /// Mod settings class / Mod 设置类
     /// </summary>
     public class Settings : UnityModManager.ModSettings
     {
-
+        // ─────────────────────────────────────────────
+        //  手法配置文件
+        // ─────────────────────────────────────────────
         [Serializable]
         public class TechniqueProfile
         {
@@ -28,7 +29,7 @@ namespace ADOFAIMacro
             public string leftHandPressTimes = "0.8,0.8";
             public string rightHandPressTimes = "0.8,0.8";
             public int handPreference = 1; // 0=左手优先, 1=右手优先
-            public List<TechniqueSegment> techniqueSegments = new List<TechniqueSegment>(); // 新增
+            public List<TechniqueSegment> techniqueSegments = [];
 
             public TechniqueProfile() { }
 
@@ -44,25 +45,50 @@ namespace ADOFAIMacro
                     leftHandPressTimes = this.leftHandPressTimes,
                     rightHandPressTimes = this.rightHandPressTimes,
                     handPreference = this.handPreference,
-                    techniqueSegments = [.. this.techniqueSegments.Select(s => new TechniqueSegment
-                    {
-                        startFloor = s.startFloor,
-                        endFloor = s.endFloor,
-                        bpmLimit = s.bpmLimit
+                    techniqueSegments = [.. this.techniqueSegments.Select(s => new TechniqueSegment {
+                        startFloor          = s.startFloor,
+                        endFloor            = s.endFloor,
+                        bpmLimit            = s.bpmLimit,
+                        leftHandKeys        = s.leftHandKeys,
+                        rightHandKeys       = s.rightHandKeys,
+                        leftHandOrders      = s.leftHandOrders,
+                        rightHandOrders     = s.rightHandOrders,
+                        leftHandPressTimes  = s.leftHandPressTimes,
+                        rightHandPressTimes = s.rightHandPressTimes,
                     })]
                 };
             }
         }
 
+        // ─────────────────────────────────────────────
+        //  变速分段（含可选按键覆盖）
+        // ─────────────────────────────────────────────
         [Serializable]
         public class TechniqueSegment
         {
-            public int startFloor;   // 起始地板编号（包含）
-            public int endFloor;     // 结束地板编号（包含）
-            public float bpmLimit;   // 该段的 BPM 阈值
-                                     // 可扩展：左右手按键、顺序等
+            public int startFloor;
+            public int endFloor;
+            public float bpmLimit;
+
+            // 可选按键覆盖（留空 = 继承全局配置）
+            public string leftHandKeys = "";
+            public string rightHandKeys = "";
+            public string leftHandOrders = "";
+            public string rightHandOrders = "";
+            public string leftHandPressTimes = "";
+            public string rightHandPressTimes = "";
+
+            /// <summary>任一手的按键字段非空即视为有覆盖</summary>
+            public bool HasKeyOverride =>
+                !string.IsNullOrWhiteSpace(leftHandKeys) ||
+                !string.IsNullOrWhiteSpace(rightHandKeys);
         }
+
+        // ─────────────────────────────────────────────
+        //  UI 内部状态
+        // ─────────────────────────────────────────────
         public List<TechniqueSegment> techniqueSegments = [];
+
         private class SegmentEditState
         {
             public string startInput = "";
@@ -72,20 +98,21 @@ namespace ADOFAIMacro
             public string bpmInput = "";
             public bool bpmFocused;
         }
-        private readonly List<SegmentEditState> _segmentEditStates = [];
+        private List<SegmentEditState> _segmentEditStates = [];
+        private List<bool> _segmentExpanded = [];
 
+        // ─────────────────────────────────────────────
+        //  基础设置属性
+        // ─────────────────────────────────────────────
         public event Action<bool> OnMacroChanged;
 
-        private bool _useChinese = true;  // 默认中文
+        private bool _useChinese = true;
         public bool UseChinese
         {
             get => _useChinese;
-            set
-            {
-                if (_useChinese == value) return;
-                _useChinese = value;
-            }
+            set { if (_useChinese == value) return; _useChinese = value; }
         }
+
         private bool _macro;
         public bool Macro
         {
@@ -98,28 +125,20 @@ namespace ADOFAIMacro
             }
         }
 
-        // 修复属性语法
         private string _macroKeys = "D,F,J,K";
         public string MacroKeys
         {
             get => _macroKeys;
-            set
-            {
-                if (_macroKeys == value) return;
-                _macroKeys = value;
-            }
+            set { if (_macroKeys == value) return; _macroKeys = value; }
         }
 
         private bool _simulateKeyPress = false;
         public bool SimulateKeyPress
         {
             get => _simulateKeyPress;
-            set
-            {
-                if (_simulateKeyPress == value) return;
-                _simulateKeyPress = value;
-            }
+            set { if (_simulateKeyPress == value) return; _simulateKeyPress = value; }
         }
+
         public bool EnableKeyAdjust = true;
         public float AdjustStep = 1f;
 
@@ -136,16 +155,9 @@ namespace ADOFAIMacro
         public bool SkyHookMode
         {
             get => _skyHookMode;
-            set
-            {
-                if (_skyHookMode == value) return;
-                _skyHookMode = value;
-                // 可以在这里添加模式切换的即时处理
-                // OnSkyHookModeChanged?.Invoke(value);
-            }
+            set { if (_skyHookMode == value) return; _skyHookMode = value; }
         }
 
-        // 使用ValueTuple减少GC
         private (string input, bool focused) _adjustStepState = (string.Empty, false);
         private (string input, bool focused) _timeOffsetState = (string.Empty, false);
 
@@ -153,46 +165,29 @@ namespace ADOFAIMacro
         public bool HighPrecisionAsync
         {
             get => _highPrecisionAsync;
-            set
-            {
-                if (_highPrecisionAsync == value) return;
-                _highPrecisionAsync = value;
-            }
+            set { if (_highPrecisionAsync == value) return; _highPrecisionAsync = value; }
         }
 
-        // 添加测试版判断属性
+        // ── 版本信息 ──────────────────────────────────
         private int? _betaVersion = null;
         public int BetaVersion
         {
             get
             {
-                if (_betaVersion == null)
-                {
-                    _betaVersion = GetBetaVersionFromAssembly();
-                }
+                if (_betaVersion == null) _betaVersion = GetBetaVersionFromAssembly();
                 return _betaVersion.Value;
             }
         }
-
         public bool IsBeta => BetaVersion > 0;
 
         private int GetBetaVersionFromAssembly()
         {
-            try
-            {
-                Assembly assembly = Assembly.GetExecutingAssembly();
-                Version version = assembly.GetName().Version;
-                // 获取版本号的第四位（修订号）
-                int betaNumber = version.Revision;
-                return betaNumber;
-            }
-            catch
-            {
-                return 0; // 如果获取失败，默认为正式版
-            }
+            try { return Assembly.GetExecutingAssembly().GetName().Version.Revision; }
+            catch { return 0; }
         }
 
-        private int _inputMode = 0; // 默认 Auto
+        // ── 输入模式 ──────────────────────────────────
+        private int _inputMode = 0;
         public int InputMode
         {
             get => _inputMode;
@@ -200,21 +195,17 @@ namespace ADOFAIMacro
             {
                 if (_inputMode == value) return;
                 _inputMode = value;
-                // 通知 DLL 切换模式
                 if (ADOFAIMacro.Macro.InputSystem.IsInitialized)
                     ADOFAIMacro.Macro.InputSystem.SetInputMode((Macro.InputMode)value);
             }
         }
 
+        // ── 死亡按键 ──────────────────────────────────
         private bool _enableDeathKey = false;
         public bool EnableDeathKey
         {
             get => _enableDeathKey;
-            set
-            {
-                if (_enableDeathKey == value) return;
-                _enableDeathKey = value;
-            }
+            set { if (_enableDeathKey == value) return; _enableDeathKey = value; }
         }
 
         private float _deathKeyDelay = 5f;
@@ -224,7 +215,7 @@ namespace ADOFAIMacro
             set => _deathKeyDelay = Mathf.Clamp(value, 0.1f, 30f);
         }
 
-        private int _deathKeyCode = 0x52; // 默认 R 键 (0x52)
+        private int _deathKeyCode = 0x52;
         public int DeathKeyCode
         {
             get => _deathKeyCode;
@@ -239,12 +230,8 @@ namespace ADOFAIMacro
             {
                 if (_deathKeyInput == value) return;
                 _deathKeyInput = value.ToUpper();
-                // 尝试转换按键代码
-                int? keyCode = GetKeyCodeFromString(_deathKeyInput);
-                if (keyCode.HasValue)
-                {
-                    _deathKeyCode = keyCode.Value;
-                }
+                int? code = GetKeyCodeFromString(_deathKeyInput);
+                if (code.HasValue) _deathKeyCode = code.Value;
             }
         }
 
@@ -253,7 +240,7 @@ namespace ADOFAIMacro
         public bool LockLevelEditor = false;
 
         // ─────────────────────────────────────────────
-        //  手法模拟设置
+        //  手法模拟全局设置
         // ─────────────────────────────────────────────
         private bool _enableTechSim = false;
         public bool EnableTechniqueSimulation
@@ -269,85 +256,25 @@ namespace ADOFAIMacro
             set => _techniqueBpmLimit = Mathf.Clamp(value, 50f, 2000f);
         }
 
-        // 左右手按键列表，逗号分隔，例 "D,F"
         public string TechLeftHandKeys = "D,F";
         public string TechRightHandKeys = "J,K";
-
-        // 按键顺序表：用 | 分隔不同按键数的方案，逗号分隔每方案内的按键序号(1-based)
-        // 例："1|2,1|1,2,3" 表示：1键→第1键；2键→第2键再第1键；3键→第1,2,3键
-        // 留空 = 默认顺序
         public string TechLeftHandOrders = "";
         public string TechRightHandOrders = "";
-
-        // 每个按键的按下时长比例(0.05~1.0)，逗号分隔
         public string TechLeftHandPressTimes = "0.8,0.8";
         public string TechRightHandPressTimes = "0.8,0.8";
 
-        // UI 状态（内部使用）
         private (string input, bool focused) _techBpmState = (string.Empty, false);
-
         private (string input, bool focused) _deathKeyDelayState = (string.Empty, false);
 
-        private static readonly Dictionary<string, int> KeyCodeMap = new(StringComparer.OrdinalIgnoreCase)
-        {
-            // 字母键
-            {"A", 0x41}, {"B", 0x42}, {"C", 0x43}, {"D", 0x44}, {"E", 0x45}, {"F", 0x46},
-            {"G", 0x47}, {"H", 0x48}, {"I", 0x49}, {"J", 0x4A}, {"K", 0x4B}, {"L", 0x4C},
-            {"M", 0x4D}, {"N", 0x4E}, {"O", 0x4F}, {"P", 0x50}, {"Q", 0x51}, {"R", 0x52},
-            {"S", 0x53}, {"T", 0x54}, {"U", 0x55}, {"V", 0x56}, {"W", 0x57}, {"X", 0x58},
-            {"Y", 0x59}, {"Z", 0x5A},
-            
-            // 数字键
-            {"0", 0x30}, {"1", 0x31}, {"2", 0x32}, {"3", 0x33}, {"4", 0x34},
-            {"5", 0x35}, {"6", 0x36}, {"7", 0x37}, {"8", 0x38}, {"9", 0x39},
-            
-            // 功能键
-            {"F1", 0x70}, {"F2", 0x71}, {"F3", 0x72}, {"F4", 0x73}, {"F5", 0x74},
-            {"F6", 0x75}, {"F7", 0x76}, {"F8", 0x77}, {"F9", 0x78}, {"F10", 0x79},
-            {"F11", 0x7A}, {"F12", 0x7B},
-            
-            // 特殊键
-            {"SPACE", 0x20}, {"ENTER", 0x0D}, {"RETURN", 0x0D}, {"ESC", 0x1B},
-            {"TAB", 0x09}, {"SHIFT", 0x10}, {"CTRL", 0x11}, {"ALT", 0x12},
-            {"BACKSPACE", 0x08}, {"DELETE", 0x2E}, {"INSERT", 0x2D},
-            {"HOME", 0x24}, {"END", 0x23}, {"PAGEUP", 0x21}, {"PAGEDOWN", 0x22},
-            
-            // 方向键
-            {"UP", 0x26}, {"DOWN", 0x28}, {"LEFT", 0x25}, {"RIGHT", 0x27}
-        };
-
-        private int? GetKeyCodeFromString(string keyString)
-        {
-            if (string.IsNullOrEmpty(keyString))
-                return null;
-
-            // 尝试直接解析为十六进制
-            if (keyString.StartsWith("0x", StringComparison.OrdinalIgnoreCase))
-            {
-                if (int.TryParse(keyString.Substring(2), System.Globalization.NumberStyles.HexNumber, null, out int hexCode))
-                    return hexCode;
-            }
-
-            // 尝试从映射表获取
-            if (KeyCodeMap.TryGetValue(keyString, out int code))
-                return code;
-
-            return null;
-        }
-
-        // 在现有属性后面添加
+        // ── 按键过滤 ──────────────────────────────────
         private bool _enableKeyFilter = false;
         public bool EnableKeyFilter
         {
             get => _enableKeyFilter;
-            set
-            {
-                if (_enableKeyFilter == value) return;
-                _enableKeyFilter = value;
-            }
+            set { if (_enableKeyFilter == value) return; _enableKeyFilter = value; }
         }
 
-        private int _filterMode = 0; // 0: 黑名单模式, 1: 白名单模式
+        private int _filterMode = 0;
         public int FilterMode
         {
             get => _filterMode;
@@ -370,661 +297,21 @@ namespace ADOFAIMacro
 
         private (string input, bool focused) _filteredKeysState = (string.Empty, false);
         private (string input, bool focused) _filteredAsyncKeysState = (string.Empty, false);
+
         public bool HighPrecisionTime;
 
+        // ── 配置选项卡索引 ─────────────────────────────
         private int selectedCardIndex = 0;
 
-        // 手法模拟起始手偏好：0 = 左手优先, 1 = 右手优先
+        // ── 手法起始手 ────────────────────────────────
         private int _techniqueHandPreference = 1;
         public int TechniqueHandPreference
         {
             get => _techniqueHandPreference;
-            set
-            {
-                if (_techniqueHandPreference == value) return;
-                _techniqueHandPreference = value;
-            }
+            set { if (_techniqueHandPreference == value) return; _techniqueHandPreference = value; }
         }
 
-        // 重构后的 OnGUI 方法
-        public void OnGUI(UnityModManager.ModEntry modEntry)
-        {
-            UIUtils.InitializeStyles();
-
-            // 构建卡片列表（名称 + 绘制委托）
-            var cards = new List<(string name, Action draw)>();
-
-            // 语言卡
-            cards.Add((UseChinese ? "语言" : "Language", DrawLanguageCard));
-            // 主开关卡
-            cards.Add((UseChinese ? "宏" : "Macro", DrawMainSwitchCard));
-
-            if (Macro)
-            {
-                // 按键设置卡
-                cards.Add((UseChinese ? "按键设置" : "Key Settings", DrawKeySettingsCard));
-                // 按键过滤卡
-                cards.Add((UseChinese ? "按键过滤" : "Key Filter", DrawKeyFilterCard));
-                // 延迟设置卡
-                cards.Add((UseChinese ? "延迟设置" : "Offset Settings", DrawOffsetSettingsCard));
-                // 其他设置卡
-                cards.Add((UseChinese ? "其他选项" : "Other Settings", DrawOtherSettingsCard));
-
-                if (SimulateKeyPress)
-                {
-                    // 手法模拟卡
-                    cards.Add((UseChinese ? "手法模拟" : "Technique Simulation", DrawTechniqueSimCard));
-                }
-            }
-
-            // 更新日志卡
-            cards.Add((UseChinese ? "更新日志" : "Update Log", DrawUpdateLogCard));
-            // 作者卡
-            cards.Add((UseChinese ? "作者" : "Author", DrawAuthorCard));
-
-            if (IsBeta)
-            {
-                // 测试版卡
-                cards.Add((UseChinese ? "测试版" : "Beta", DrawBetaCard));
-            }
-
-            // 确保选中的索引有效
-            if (selectedCardIndex >= cards.Count) selectedCardIndex = 0;
-
-            // ----- 顶部卡片选择栏（定制UI）-----
-            // 使用 Material 3 风格的 SelectionGrid 作为选项卡
-            string[] cardNames = cards.Select(c => c.name).ToArray();
-            selectedCardIndex = UIUtils.M3SelectionGrid(selectedCardIndex, cardNames, cards.Count, GUILayout.Height(30));
-
-            GUILayout.Space(10);
-
-            // ----- 当前选中的卡片内容 -----
-            if (cards.Count > 0)
-            {
-                cards[selectedCardIndex].draw();
-            }
-        }
-        private void DrawLanguageCard()
-        {
-            GUILayout.BeginVertical(UIUtils.CardStyle);
-
-            // 如果是测试版，在标题旁显示测试版标记
-            string headerText = UseChinese ? "语言" : "Language";
-
-            GUILayout.Label(headerText, UIUtils.HeaderStyle);
-            GUILayout.Space(2);
-
-            GUILayout.BeginHorizontal();
-            string LanguageSwitchText = UseChinese ? "显示语言" : "Display Language";
-
-            GUILayout.Label(LanguageSwitchText, UIUtils.LabelStyle, GUILayout.Width(150));
-
-            string[] languages = ["中文", "English"];
-            int selected = UseChinese ? 0 : 1;
-            int newSelected = UIUtils.M3SelectionGrid(selected, languages, 2, GUILayout.Width(200));
-            if (newSelected != selected)
-            {
-                UseChinese = newSelected == 0;
-            }
-            GUILayout.EndHorizontal();
-            GUILayout.EndVertical();
-        }
-
-        private void DrawMainSwitchCard()
-        {
-            GUILayout.BeginVertical(UIUtils.CardStyle);
-            GUILayout.Label(UseChinese ? "宏" : "Macro", UIUtils.HeaderStyle);
-
-            string macroSwitchText = UseChinese ? "启用宏" : "Enable Macro";
-            bool newMacro = UIUtils.M3Switch(Macro, macroSwitchText);
-            if (newMacro != Macro)
-            {
-                Macro = newMacro;
-                ADOBase.controller.Restart();
-            }
-            GUILayout.EndVertical();
-        }
-
-        private void DrawOffsetSettingsCard()
-        {
-            GUILayout.BeginVertical(UIUtils.CardStyle);
-            GUILayout.Label(UseChinese ? "延迟设置" : "Offset Settings", UIUtils.HeaderStyle);
-            GUILayout.Space(2);
-
-            string adjustText = UseChinese ? "允许Ctrl+左右键调整步长偏移(游戏中)" : "Allow adjusting step offset using Ctrl and arrow keys (in-game)";
-            EnableKeyAdjust = UIUtils.M3Switch(EnableKeyAdjust, adjustText);
-            GUILayout.Space(2);
-            GUILayout.BeginHorizontal();
-            AdjustStep = UIUtils.M3HorizontalSliderWithLabelAndInput(UseChinese ? "调整步长" : "Adjust Step", AdjustStep, 0.1f, 10f,
-                ref _adjustStepState.input, ref _adjustStepState.focused, "F2", 120, 240, 60);
-            GUILayout.EndHorizontal();
-
-            GUILayout.Space(2);
-            GUILayout.BeginHorizontal();
-            TimeOffset = UIUtils.M3HorizontalSliderWithLabelAndInput(UseChinese ? "延迟 (ms)" : "Offset (ms)", TimeOffset, -100f, 100f,
-                ref _timeOffsetState.input, ref _timeOffsetState.focused, "F2", 120, 240, 60);
-            GUILayout.EndHorizontal();
-
-            GUILayout.Space(2);
-            string arrowText = UseChinese ? "允许左右键调整延迟(游戏中)" : "Allow adjustment of delay using left and right keys (in-game)";
-            EnableArrowTimeAdjust = UIUtils.M3Switch(EnableArrowTimeAdjust, arrowText);
-            GUILayout.Space(2);
-            string highPrecisionText = UseChinese ? "启用高精度时间（提高同步精度）" : "Enable High Precision Time (improves sync accuracy)";
-            HighPrecisionTime = UIUtils.M3Switch(HighPrecisionTime, highPrecisionText);
-            GUILayout.Space(2);
-            string highPrecisionAsyncText = UseChinese ? "[实验性]启用高精度异步" : "[Experimental]Enable High Precision Async";
-            HighPrecisionAsync = UIUtils.M3Switch(HighPrecisionAsync, highPrecisionAsyncText);
-            GUILayout.EndVertical();
-        }
-
-        private void DrawKeySettingsCard()
-        {
-            GUILayout.BeginVertical(UIUtils.CardStyle);
-            GUILayout.Label(UseChinese ? "按键设置" : "Key Settings", UIUtils.HeaderStyle);
-            GUILayout.Space(2);
-
-            if (!Main.Settings.EnableTechniqueSimulation)
-            {
-                GUILayout.BeginHorizontal();
-                string keysLabel = UseChinese ? "按键序列 (逗号分隔)" : "Keys (comma separated)";
-                GUILayout.Label(keysLabel, UIUtils.LabelStyle, GUILayout.Width(180));
-                MacroKeys = GUILayout.TextField(MacroKeys, UIUtils.TextFieldStyle, GUILayout.ExpandWidth(true));
-                GUILayout.EndHorizontal();
-            }
-
-            GUILayout.Space(2);
-            string simulateText = UseChinese ? "按键模拟" : "Key simulation";
-            bool newSimulateKeyPress = UIUtils.M3Switch(SimulateKeyPress, simulateText);
-            if (newSimulateKeyPress != SimulateKeyPress)
-            {
-                SimulateKeyPress = newSimulateKeyPress;
-                ADOBase.controller.Restart();
-            }
-
-            if (SimulateKeyPress)
-            {
-                GUILayout.Space(2);
-                string skyHook = UseChinese ? "使用高级输入(否则使用SendInput API)" : "Use advanced input (if closed, use SendInput API)";
-                SkyHookMode = UIUtils.M3Switch(SkyHookMode, skyHook);
-
-                // ── 仅在 SkyHook 开启时显示输入模式选择 ──────────────
-                if (SkyHookMode)
-                {
-                    GUILayout.Space(6);
-
-                    // 分隔线
-                    Color originalColor = GUI.color;
-                    GUI.color = new Color(0.5f, 0.5f, 0.5f, 0.3f);
-                    GUILayout.Box("", GUILayout.Height(1), GUILayout.ExpandWidth(true));
-                    GUI.color = originalColor;
-
-                    GUILayout.Space(4);
-
-                    // 标题 + 当前生效模式
-                    GUILayout.BeginHorizontal();
-                    GUILayout.Label(
-                        UseChinese ? "Win API 输入模式" : "Win API Input Mode",
-                        UIUtils.LabelStyle, GUILayout.Width(150));
-
-                    // 当前实际生效模式（只读提示）
-                    if (InputSystem.IsInitialized)
-                    {
-                        var actual = InputSystem.GetInputMode();
-                        GUIStyle hintStyle = new(UIUtils.LabelStyle);
-                        hintStyle.normal.textColor = new Color(0.5f, 0.9f, 0.5f, 0.8f);
-                        hintStyle.fontSize = 10;
-                        string actualLabel = UseChinese
-                            ? $"[实际: {GetModeLabel(actual, true)}]"
-                            : $"[Active: {GetModeLabel(actual, false)}]";
-                        GUILayout.Label(actualLabel, hintStyle);
-                    }
-                    GUILayout.EndHorizontal();
-
-                    GUILayout.Space(4);
-
-                    // 可用模式检测
-                    bool hasInject = !ADOFAIMacro.Macro.InputSystem.IsInitialized || ADOFAIMacro.Macro.InputSystem.IsModeAvailable(ADOFAIMacro.Macro.InputMode.NtUserInjectKeyboard);
-                    bool hasNtSend = !ADOFAIMacro.Macro.InputSystem.IsInitialized || ADOFAIMacro.Macro.InputSystem.IsModeAvailable(ADOFAIMacro.Macro.InputMode.NtUserSendInput);
-
-                    // 模式按钮组
-                    string[] modeLabels = UseChinese
-                        ? ["自动", "NtInject", "NtSendInput ★", "SendInput"]
-                        : ["Auto", "NtInject", "NtSendInput ★", "SendInput"];
-
-                    // 不可用的模式置灰
-                    GUILayout.BeginHorizontal();
-                    for (int i = 0; i < 4; i++)
-                    {
-                        bool available = i switch
-                        {
-                            1 => hasInject,
-                            2 => hasNtSend,
-                            _ => true
-                        };
-                        string label = modeLabels[i];
-                        if (!available)
-                            label += UseChinese ? "(不支持)" : "(N/A)";
-
-                        bool clicked = GUILayout.Button(label, UIUtils.ButtonStyle, GUILayout.Height(24));
-                        if (clicked && available && InputMode != i)
-                            InputMode = i;
-                    }
-                    GUILayout.EndHorizontal();
-
-                    // 模式说明
-                    GUILayout.Space(4);
-                    GUIStyle descStyle = new(UIUtils.LabelStyle);
-                    descStyle.normal.textColor = new Color(0.75f, 0.75f, 0.75f, 0.8f);
-                    descStyle.fontSize = 10;
-                    descStyle.wordWrap = true;
-
-                    string desc = InputMode switch
-                    {
-                        0 => UseChinese
-                            ? "自动：优先使用最底层可用方式"
-                            : "Auto: use the lowest available layer automatically",
-                        1 => UseChinese
-                            ? "NtInject （最底层）：直接注入原始输入流，绕过用户层检测"
-                            : "NtInject  (deepest): inject into raw input stream, bypasses user-mode filters",
-                        2 => UseChinese
-                            ? "NtSendInput ★：内核边界注入，比 SendInput 底层"
-                            : "NtSendInput ★: kernel-boundary injection, lower than SendInput",
-                        3 => UseChinese
-                            ? "SendInput：标准 Win32 API，兼容性最佳"
-                            : "SendInput: standard Win32 API, best compatibility",
-                        _ => ""
-                    };
-                    GUILayout.Label(desc, descStyle);
-                }
-            }
-
-            GUILayout.EndVertical();
-        }
-
-        // ── 模式名称辅助 ──────────────────────────────────────────
-        private string GetModeLabel(Macro.InputMode mode, bool chinese) => mode switch
-        {
-            ADOFAIMacro.Macro.InputMode.Auto => chinese ? "自动" : "Auto",
-            ADOFAIMacro.Macro.InputMode.NtUserInjectKeyboard => chinese ? "NtInject" : "NtInject",
-            ADOFAIMacro.Macro.InputMode.NtUserSendInput => chinese ? "NtSendInput ★" : "NtSendInput ★",
-            ADOFAIMacro.Macro.InputMode.SendInput => chinese ? "SendInput" : "SendInput",
-            _ => mode.ToString()
-        };
-
-        private void DrawKeyFilterCard()
-        {
-            GUILayout.BeginVertical(UIUtils.CardStyle);
-            GUILayout.Label(UseChinese ? "按键过滤" : "Key Filter", UIUtils.HeaderStyle);
-            GUILayout.Space(2);
-
-            string enableFilterText = UseChinese ? "启用按键过滤" : "Enable Key Filter";
-            bool newEnableFilter = UIUtils.M3Switch(EnableKeyFilter, enableFilterText);
-            if (newEnableFilter != EnableKeyFilter)
-                EnableKeyFilter = newEnableFilter;
-
-            if (EnableKeyFilter)
-            {
-                GUILayout.Space(6);
-
-                // 分隔线
-                Color originalColor = GUI.color;
-                GUI.color = new Color(0.5f, 0.5f, 0.5f, 0.3f);
-                GUILayout.Box("", GUILayout.Height(1), GUILayout.ExpandWidth(true));
-                GUI.color = originalColor;
-
-                GUILayout.Space(4);
-
-                // 过滤模式选择
-                GUILayout.BeginHorizontal();
-                GUILayout.Label(UseChinese ? "过滤模式" : "Filter Mode", UIUtils.LabelStyle, GUILayout.Width(100));
-                string[] modes = UseChinese
-                    ? ["黑名单模式", "白名单模式"]
-                    : ["Blacklist Mode", "Whitelist Mode"];
-                int newMode = UIUtils.M3SelectionGrid(FilterMode, modes, 2, GUILayout.Width(200));
-                if (newMode != FilterMode)
-                    FilterMode = newMode;
-                GUILayout.EndHorizontal();
-
-                GUILayout.Space(8);
-
-                // 模式说明
-                GUIStyle descStyle = new(UIUtils.LabelStyle);
-                descStyle.normal.textColor = new Color(0.7f, 0.7f, 0.7f, 0.8f);
-                descStyle.fontSize = 11;
-                descStyle.wordWrap = true;
-                GUILayout.Label(FilterMode == 0
-                    ? (UseChinese ? "⛔ 黑名单模式：列表中的按键将被阻止" : "⛔ Blacklist: Keys in the list will be blocked")
-                    : (UseChinese ? "✅ 白名单模式：只有列表中的按键允许通过" : "✅ Whitelist: Only keys in the list are allowed"),
-                    descStyle);
-
-                GUILayout.Space(8);
-
-                // 普通按键列表
-                GUILayout.BeginHorizontal();
-                GUILayout.Label(UseChinese ? "按键列表 (逗号分隔)" : "Keys (comma separated)", UIUtils.LabelStyle, GUILayout.Width(140)); // 原160 -> 140
-                string newFilteredKeys = UIUtils.M3TextField(FilteredKeys,
-                    ref _filteredKeysState.input,
-                    ref _filteredKeysState.focused,
-                    UIUtils.TextFieldStyle,
-                    "TechnicalkeysNormal");
-                if (newFilteredKeys != FilteredKeys)
-                    FilteredKeys = newFilteredKeys;
-                GUILayout.EndHorizontal();
-
-                // 异步按键列表同理
-                GUILayout.BeginHorizontal();
-                GUILayout.Label(UseChinese ? "异步按键列表 (逗号分隔)" : "Async Keys (comma separated)", UIUtils.LabelStyle, GUILayout.Width(140));
-                if (SkyHookMode)
-                {
-                    string newFilteredAsyncKeys = UIUtils.M3TextField(FilteredAsyncKeys,
-                        ref _filteredAsyncKeysState.input,
-                        ref _filteredAsyncKeysState.focused,
-                        UIUtils.TextFieldStyle,
-                        "TechnicalkeysAsync"); // 固定宽度250
-                    if (newFilteredAsyncKeys != FilteredAsyncKeys)
-                        FilteredAsyncKeys = newFilteredAsyncKeys;
-                }
-                else
-                {
-                    GUIStyle disabledStyle = new(UIUtils.LabelStyle);
-                    disabledStyle.normal.textColor = new Color(0.5f, 0.5f, 0.5f, 0.5f);
-                    GUILayout.Label(UseChinese ? "（需开启 SkyHook 模式）" : "(Requires SkyHook Mode)", disabledStyle);
-                }
-                GUILayout.EndHorizontal();
-
-                GUILayout.Space(8);
-
-                // 常用按键标签
-                GUILayout.Label(UseChinese ? "常用按键:" : "Common Keys:", UIUtils.LabelStyle);
-                GUILayout.Space(2);
-
-                // 第一行
-                GUILayout.BeginHorizontal();
-                if (GUILayout.Button("F1,F2,F3,F4", UIUtils.ButtonStyle, GUILayout.ExpandWidth(true)))
-                {
-                    FilteredKeys = "F1,F2,F3,F4";
-                    if (SkyHookMode) FilteredAsyncKeys = "F1,F2,F3,F4";
-                }
-                if (GUILayout.Button("F5,F6,F7,F8", UIUtils.ButtonStyle, GUILayout.ExpandWidth(true)))
-                {
-                    FilteredKeys = "F5,F6,F7,F8";
-                    if (SkyHookMode) FilteredAsyncKeys = "F5,F6,F7,F8";
-                }
-                if (GUILayout.Button("F9,F10,F11,F12", UIUtils.ButtonStyle, GUILayout.ExpandWidth(true)))
-                {
-                    FilteredKeys = "F9,F10,F11,F12";
-                    if (SkyHookMode) FilteredAsyncKeys = "F9,F10,F11,F12";
-                }
-                GUILayout.EndHorizontal();
-
-                // 第二行
-                GUILayout.BeginHorizontal();
-                if (GUILayout.Button("A,S,D,F", UIUtils.ButtonStyle, GUILayout.ExpandWidth(true)))
-                {
-                    FilteredKeys = "A,S,D,F";
-                    if (SkyHookMode) FilteredAsyncKeys = "A,S,D,F";
-                }
-                if (GUILayout.Button("J,K,L", UIUtils.ButtonStyle, GUILayout.ExpandWidth(true)))
-                {
-                    FilteredKeys = "J,K,L";
-                    if (SkyHookMode) FilteredAsyncKeys = "J,K,L";
-                }
-                if (GUILayout.Button("1,2,3,4", UIUtils.ButtonStyle, GUILayout.ExpandWidth(true)))
-                {
-                    FilteredKeys = "1,2,3,4";
-                    if (SkyHookMode) FilteredAsyncKeys = "1,2,3,4";
-                }
-                GUILayout.EndHorizontal();
-
-                // 第三行
-                GUILayout.BeginHorizontal();
-                if (GUILayout.Button("SPACE,ENTER,ESC", UIUtils.ButtonStyle, GUILayout.ExpandWidth(true)))
-                {
-                    FilteredKeys = "SPACE,ENTER,ESC";
-                    if (SkyHookMode) FilteredAsyncKeys = "SPACE,ENTER,ESC";
-                }
-                if (GUILayout.Button("UP,DOWN,LEFT,RIGHT", UIUtils.ButtonStyle, GUILayout.ExpandWidth(true)))
-                {
-                    FilteredKeys = "UP,DOWN,LEFT,RIGHT";
-                    if (SkyHookMode) FilteredAsyncKeys = "UP,DOWN,LEFT,RIGHT";
-                }
-                if (GUILayout.Button("CTRL,ALT,SHIFT", UIUtils.ButtonStyle, GUILayout.ExpandWidth(true)))
-                {
-                    FilteredKeys = "CTRL,ALT,SHIFT";
-                    if (SkyHookMode) FilteredAsyncKeys = "CTRL,ALT,SHIFT";
-                }
-                GUILayout.EndHorizontal();
-
-                GUILayout.Space(8);
-
-                // 提示信息
-                GUIStyle tipStyle = new(UIUtils.LabelStyle);
-                tipStyle.normal.textColor = new Color(0.7f, 0.7f, 0.7f, 0.7f);
-                tipStyle.fontSize = 10;
-                tipStyle.wordWrap = true;
-                GUILayout.Label(UseChinese
-                    ? "提示：支持按键名称（A、B、SPACE、ENTER等）和虚拟键码（0x41格式）。多个按键用逗号分隔。"
-                    : "Tip: Supports key names (A, B, SPACE, ENTER, etc.) and virtual key codes (0x41 format). Separate multiple keys with commas.",
-                    tipStyle);
-            }
-
-            GUILayout.EndVertical();
-        }
-
-        // 在 DrawOtherSettingsCard 方法中修改
-        private void DrawOtherSettingsCard()
-        {
-            GUILayout.BeginVertical(UIUtils.CardStyle);
-            GUILayout.Label(UseChinese ? "其他选项" : "Other Settings", UIUtils.HeaderStyle);
-            GUILayout.Space(2);
-
-            // SkyHook 已开启，显示正常功能
-            string deathKeySwitchText = UseChinese
-                ? "死亡后自动按键(仅SkyHook模式)"
-                : "Auto-press key on death(Only SkyHook Mode)";
-
-            bool newEnableDeathKey = UIUtils.M3Switch(EnableDeathKey, deathKeySwitchText);
-            if (newEnableDeathKey != EnableDeathKey)
-            {
-                EnableDeathKey = newEnableDeathKey;
-            }
-
-            if (EnableDeathKey)
-            {
-                GUILayout.Space(6);
-
-                // 分隔线
-                Color originalColor = GUI.color;
-                GUI.color = new Color(0.5f, 0.5f, 0.5f, 0.3f);
-                GUILayout.Box("", GUILayout.Height(1), GUILayout.ExpandWidth(true));
-                GUI.color = originalColor;
-
-                GUILayout.Space(4);
-
-                // 延迟时间设置
-                GUILayout.BeginHorizontal();
-                DeathKeyDelay = UIUtils.M3HorizontalSliderWithLabelAndInput(
-                    UseChinese ? "延迟秒数" : "Delay (seconds)",
-                    DeathKeyDelay, 0.1f, 30f,
-                    ref _deathKeyDelayState.input, ref _deathKeyDelayState.focused, "F1", 140, 200, 60);
-                GUILayout.EndHorizontal();
-
-                GUILayout.Space(4);
-
-                // 按键选择
-                GUILayout.BeginHorizontal();
-                string keyLabel = UseChinese ? "按键" : "Key";
-                GUILayout.Label(keyLabel, UIUtils.LabelStyle, GUILayout.Width(80));
-
-                // 按键输入框
-                string newDeathKeyInput = GUILayout.TextField(DeathKeyInput, UIUtils.TextFieldStyle, GUILayout.Width(100));
-                if (newDeathKeyInput != DeathKeyInput)
-                {
-                    DeathKeyInput = newDeathKeyInput;
-                }
-
-                GUILayout.Space(10);
-
-                // 显示当前按键代码
-                GUIStyle codeStyle = new(UIUtils.LabelStyle);
-                codeStyle.normal.textColor = new Color(0.6f, 0.6f, 0.6f, 0.8f);
-                codeStyle.fontSize = 10;
-                GUILayout.Label($"0x{DeathKeyCode:X2}", codeStyle);
-
-                GUILayout.FlexibleSpace();
-
-                GUILayout.EndHorizontal();
-
-                GUILayout.Space(4);
-
-                // 常用按键快捷按钮
-                GUILayout.BeginHorizontal();
-                string[] commonKeys = ["R", "SPACE", "ENTER", "F2", "ESC"];
-                foreach (string key in commonKeys)
-                {
-                    if (GUILayout.Button(key, UIUtils.ButtonStyle, GUILayout.ExpandWidth(true)))
-                    {
-                        DeathKeyInput = key;
-                    }
-                }
-                GUILayout.EndHorizontal();
-
-                GUILayout.Space(2);
-
-                // 提示信息
-                GUIStyle tipStyle = new(UIUtils.LabelStyle);
-                tipStyle.normal.textColor = new Color(0.7f, 0.7f, 0.7f, 0.7f);
-                tipStyle.fontSize = 10;
-                tipStyle.wordWrap = true;
-
-                string tipText = UseChinese
-                    ? "提示：可直接输入字母、数字、F1-F12或特殊键名（如SPACE、ENTER），也可输入十六进制代码（如0x52）"
-                    : "Tip: Enter letters, numbers, F1-F12, or special keys (like SPACE, ENTER), or hex code (e.g., 0x52)";
-                GUILayout.Label(tipText, tipStyle);
-
-                GUILayout.Space(4);
-            }
-
-            ChangeNoFaillInPlay =  UIUtils.M3Switch(ChangeNoFaillInPlay, UseChinese ? "游戏中允许切换失败模式" : "The game allows switching to failure mode");
-            ChangeJudementInPlay =  UIUtils.M3Switch(ChangeJudementInPlay, UseChinese ? "游戏中允许切换判定" : "Switching Judement is allowed in the game");
-            bool NewLockLevelEditor = UIUtils.M3Switch(LockLevelEditor, UseChinese ? "锁定关卡编辑器（防止误操作）" : "Lock Level Editor (prevent misoperation)");
-            if (LockLevelEditor != NewLockLevelEditor)
-            {
-                LockLevelEditor = NewLockLevelEditor;
-                if (ADOBase.sceneName == GCNS.sceneEditor)
-                    ADOBase.controller.Restart();
-            }
-            GUILayout.EndVertical();
-        }
-
-        private void DrawAuthorCard()
-        {
-            GUILayout.BeginVertical(UIUtils.CardStyle);
-
-            // 创建淡色样式
-            GUIStyle authorStyle = new(UIUtils.LabelStyle);
-            authorStyle.normal.textColor = new Color(0.8f, 0.8f, 0.8f, 0.8f);
-            authorStyle.richText = true;
-            authorStyle.alignment = TextAnchor.MiddleLeft;
-
-            // 作者信息横排 - 紧凑版
-            GUILayout.BeginHorizontal();
-            GUILayout.Label($"👤 {Main.Mod.Info.Author}", authorStyle);
-            GUILayout.FlexibleSpace();
-
-            // 在版本号旁边显示测试版标记
-            string cleanTitle = Main.Mod.Info.Version.Replace('\n', ' ').Replace('\r', ' ');
-            string versionText = $"📦 {cleanTitle}";
-            GUILayout.Label(versionText, authorStyle);
-
-            GUILayout.FlexibleSpace();
-            GUILayout.Label($"📧 {(UseChinese ? "hitmargin@qq.com" : "hitmargin@Outlook.com")}", authorStyle);
-            GUILayout.EndHorizontal();
-
-            GUILayout.Space(4);
-
-            // 分隔线
-            Color originalColor = GUI.color;
-            GUI.color = new Color(0.5f, 0.5f, 0.5f, 0.3f);
-            GUILayout.Box("", GUILayout.Height(10), GUILayout.ExpandWidth(true));
-            GUI.color = originalColor;
-
-            GUILayout.Space(4);
-
-            // 感谢语 - 使用更淡的颜色
-            GUIStyle thanksStyle = new(UIUtils.LabelStyle);
-            thanksStyle.normal.textColor = new Color(0.7f, 0.7f, 0.7f, 0.4f);
-            thanksStyle.fontSize = 9;
-            thanksStyle.alignment = TextAnchor.MiddleCenter;
-
-            GUILayout.Label(UseChinese ? $"❤️ 感谢使用 {Main.Mod.Info.Id}" : $"❤️ Thanks for using {Main.Mod.Info.Id}", thanksStyle);
-
-            GUILayout.EndVertical();
-        }
-
-        private void DrawBetaCard()
-        {
-            GUILayout.BeginHorizontal();
-            // 创建测试版样式（更显眼的颜色）
-            GUIStyle betaStyle = new(UIUtils.LabelStyle);
-            betaStyle.normal.textColor = new Color(1f, 0.5f, 0f, 0.9f); // 橙色
-            betaStyle.fontSize = 12;
-            betaStyle.fontStyle = FontStyle.Bold;
-            betaStyle.alignment = TextAnchor.MiddleLeft;
-            betaStyle.richText = true;
-
-            // 测试版水印
-            string betaText = UseChinese ?
-                $"⚠️ 测试版本 {BetaVersion} - 功能可能不稳定，请谨慎使用 ⚠️" :
-                $"⚠️ Beta Version {BetaVersion} - Features may be unstable, use with caution ⚠️";
-
-            GUILayout.Label(betaText, betaStyle);
-
-            // 可选：添加反馈提示
-            GUIStyle feedbackStyle = new(UIUtils.LabelStyle);
-            feedbackStyle.normal.textColor = new Color(0.5f, 0.5f, 0.5f, 0.7f);
-            feedbackStyle.fontSize = 10;
-            feedbackStyle.alignment = TextAnchor.MiddleRight;
-
-            string feedbackText = UseChinese ?
-                "如遇问题请通过邮箱反馈，感谢您的测试！" :
-                "Please report issues via email. Thank you for testing!";
-
-            GUILayout.Space(4);
-            GUILayout.Label(feedbackText, feedbackStyle);
-            GUILayout.EndHorizontal();
-        }
-
-        private Vector2 _updateLogScrollPos;
-
-        private void DrawUpdateLogCard()
-        {
-            GUILayout.BeginVertical(UIUtils.CardStyle);
-            GUILayout.Label(UseChinese ? "更新日志" : "What's New", UIUtils.HeaderStyle);
-            GUILayout.Space(4);
-
-            // 固定高度滚动视图，避免日志过长撑高卡片
-            float scrollViewHeight = 150;
-            _updateLogScrollPos = GUILayout.BeginScrollView(_updateLogScrollPos, GUILayout.Height(scrollViewHeight));
-
-            // 日志样式：支持换行和富文本
-            GUIStyle logStyle = new(UIUtils.LabelStyle)
-            {
-                wordWrap = true,
-                richText = true
-            };
-            string cleanTitle = Main.Mod.Info.Version.Replace('\n', ' ').Replace('\r', ' ');
-            // 更新内容
-            string logText = UseChinese ?
-                $"<b>版本 {cleanTitle}</b>\n• 手法模拟优化和修复" :
-                $"<b>Version {cleanTitle}</b>\n• Technique Simulation Optimization and Repair";
-
-            GUILayout.Label(logText, logStyle);
-            GUILayout.EndScrollView();
-            GUILayout.EndVertical();
-        }
-
-        // 手法模拟输入框状态
+        // ── 手法输入框状态 ────────────────────────────
         private (string input, bool focused) _techLeftKeysState = (string.Empty, false);
         private (string input, bool focused) _techRightKeysState = (string.Empty, false);
         private (string input, bool focused) _techLeftPressTimesState = (string.Empty, false);
@@ -1032,7 +319,8 @@ namespace ADOFAIMacro
         private (string input, bool focused) _techLeftOrdersState = (string.Empty, false);
         private (string input, bool focused) _techRightOrdersState = (string.Empty, false);
 
-        private List<TechniqueProfile> _techniqueProfiles = new List<TechniqueProfile>();
+        // ── 配置列表 ──────────────────────────────────
+        private List<TechniqueProfile> _techniqueProfiles = [];
         public List<TechniqueProfile> TechniqueProfiles
         {
             get => _techniqueProfiles;
@@ -1047,7 +335,6 @@ namespace ADOFAIMacro
             {
                 if (_selectedTechniqueProfileIndex == value) return;
                 _selectedTechniqueProfileIndex = value;
-                // 当索引改变时，将配置值加载到旧字段（用于 UI 显示）
                 LoadTechniqueProfileToFields(value);
             }
         }
@@ -1078,134 +365,596 @@ namespace ADOFAIMacro
             p.handPreference = TechniqueHandPreference;
         }
 
-        // DEBUG模式下使用的选项
 #if DEBUG
-        private bool _useCppTechniqueInDebug = true; // 默认使用C++版本
+        private bool _useCppTechniqueInDebug = true;
         public bool UseCppTechniqueInDebug
         {
             get => _useCppTechniqueInDebug;
-            set
-            {
-                if (_useCppTechniqueInDebug == value) return;
-                _useCppTechniqueInDebug = value;
-            }
+            set { if (_useCppTechniqueInDebug == value) return; _useCppTechniqueInDebug = value; }
         }
 #endif
 
+        // ─────────────────────────────────────────────
+        //  按键代码映射
+        // ─────────────────────────────────────────────
+        private static readonly Dictionary<string, int> KeyCodeMap = new(StringComparer.OrdinalIgnoreCase)
+        {
+            {"A",0x41},{"B",0x42},{"C",0x43},{"D",0x44},{"E",0x45},{"F",0x46},
+            {"G",0x47},{"H",0x48},{"I",0x49},{"J",0x4A},{"K",0x4B},{"L",0x4C},
+            {"M",0x4D},{"N",0x4E},{"O",0x4F},{"P",0x50},{"Q",0x51},{"R",0x52},
+            {"S",0x53},{"T",0x54},{"U",0x55},{"V",0x56},{"W",0x57},{"X",0x58},
+            {"Y",0x59},{"Z",0x5A},
+            {"0",0x30},{"1",0x31},{"2",0x32},{"3",0x33},{"4",0x34},
+            {"5",0x35},{"6",0x36},{"7",0x37},{"8",0x38},{"9",0x39},
+            {"F1",0x70},{"F2",0x71},{"F3",0x72},{"F4",0x73},{"F5",0x74},
+            {"F6",0x75},{"F7",0x76},{"F8",0x77},{"F9",0x78},{"F10",0x79},
+            {"F11",0x7A},{"F12",0x7B},
+            {"SPACE",0x20},{"ENTER",0x0D},{"RETURN",0x0D},{"ESC",0x1B},
+            {"TAB",0x09},{"SHIFT",0x10},{"CTRL",0x11},{"ALT",0x12},
+            {"BACKSPACE",0x08},{"DELETE",0x2E},{"INSERT",0x2D},
+            {"HOME",0x24},{"END",0x23},{"PAGEUP",0x21},{"PAGEDOWN",0x22},
+            {"UP",0x26},{"DOWN",0x28},{"LEFT",0x25},{"RIGHT",0x27}
+        };
+
+        private int? GetKeyCodeFromString(string keyString)
+        {
+            if (string.IsNullOrEmpty(keyString)) return null;
+            if (keyString.StartsWith("0x", StringComparison.OrdinalIgnoreCase))
+                if (int.TryParse(keyString.Substring(2), System.Globalization.NumberStyles.HexNumber, null, out int hex))
+                    return hex;
+            if (KeyCodeMap.TryGetValue(keyString, out int code)) return code;
+            return null;
+        }
+
+        // ─────────────────────────────────────────────
+        //  OnGUI 主入口
+        // ─────────────────────────────────────────────
+        public void OnGUI(UnityModManager.ModEntry modEntry)
+        {
+            UIUtils.InitializeStyles();
+
+            var cards = new List<(string name, Action draw)>();
+            cards.Add((UseChinese ? "语言" : "Language", DrawLanguageCard));
+            cards.Add((UseChinese ? "宏" : "Macro", DrawMainSwitchCard));
+
+            if (Macro)
+            {
+                cards.Add((UseChinese ? "按键设置" : "Key Settings", DrawKeySettingsCard));
+                cards.Add((UseChinese ? "按键过滤" : "Key Filter", DrawKeyFilterCard));
+                cards.Add((UseChinese ? "延迟设置" : "Offset Settings", DrawOffsetSettingsCard));
+                cards.Add((UseChinese ? "其他选项" : "Other Settings", DrawOtherSettingsCard));
+
+                if (SimulateKeyPress)
+                    cards.Add((UseChinese ? "手法模拟" : "Technique Simulation", DrawTechniqueSimCard));
+            }
+
+            cards.Add((UseChinese ? "更新日志" : "Update Log", DrawUpdateLogCard));
+            cards.Add((UseChinese ? "作者" : "Author", DrawAuthorCard));
+
+            if (IsBeta)
+                cards.Add((UseChinese ? "测试版" : "Beta", DrawBetaCard));
+
+            if (selectedCardIndex >= cards.Count) selectedCardIndex = 0;
+
+            string[] names = cards.Select(c => c.name).ToArray();
+            selectedCardIndex = UIUtils.M3SelectionGrid(selectedCardIndex, names, cards.Count, GUILayout.Height(30));
+            GUILayout.Space(10);
+
+            if (cards.Count > 0) cards[selectedCardIndex].draw();
+        }
+
+        // ─────────────────────────────────────────────
+        //  语言卡
+        // ─────────────────────────────────────────────
+        private void DrawLanguageCard()
+        {
+            GUILayout.BeginVertical(UIUtils.CardStyle);
+            GUILayout.Label(UseChinese ? "语言" : "Language", UIUtils.HeaderStyle);
+            GUILayout.Space(2);
+            GUILayout.BeginHorizontal();
+            GUILayout.Label(UseChinese ? "显示语言" : "Display Language", UIUtils.LabelStyle, GUILayout.Width(150));
+            string[] langs = ["中文", "English"];
+            int sel = UseChinese ? 0 : 1;
+            int newSel = UIUtils.M3SelectionGrid(sel, langs, 2, GUILayout.Width(200));
+            if (newSel != sel) UseChinese = newSel == 0;
+            GUILayout.EndHorizontal();
+            GUILayout.EndVertical();
+        }
+
+        // ─────────────────────────────────────────────
+        //  宏主开关卡
+        // ─────────────────────────────────────────────
+        private void DrawMainSwitchCard()
+        {
+            GUILayout.BeginVertical(UIUtils.CardStyle);
+            GUILayout.Label(UseChinese ? "宏" : "Macro", UIUtils.HeaderStyle);
+            bool newMacro = UIUtils.M3Switch(Macro, UseChinese ? "启用宏" : "Enable Macro");
+            if (newMacro != Macro) { Macro = newMacro; ADOBase.controller.Restart(); }
+            GUILayout.EndVertical();
+        }
+
+        // ─────────────────────────────────────────────
+        //  延迟设置卡
+        // ─────────────────────────────────────────────
+        private void DrawOffsetSettingsCard()
+        {
+            GUILayout.BeginVertical(UIUtils.CardStyle);
+            GUILayout.Label(UseChinese ? "延迟设置" : "Offset Settings", UIUtils.HeaderStyle);
+            GUILayout.Space(2);
+
+            EnableKeyAdjust = UIUtils.M3Switch(EnableKeyAdjust,
+                UseChinese ? "允许Ctrl+左右键调整步长偏移(游戏中)" : "Allow adjusting step offset using Ctrl and arrow keys (in-game)");
+            GUILayout.Space(2);
+            GUILayout.BeginHorizontal();
+            AdjustStep = UIUtils.M3HorizontalSliderWithLabelAndInput(
+                UseChinese ? "调整步长" : "Adjust Step", AdjustStep, 0.1f, 10f,
+                ref _adjustStepState.input, ref _adjustStepState.focused, "F2", 120, 240, 60);
+            GUILayout.EndHorizontal();
+
+            GUILayout.Space(2);
+            GUILayout.BeginHorizontal();
+            TimeOffset = UIUtils.M3HorizontalSliderWithLabelAndInput(
+                UseChinese ? "延迟 (ms)" : "Offset (ms)", TimeOffset, -100f, 100f,
+                ref _timeOffsetState.input, ref _timeOffsetState.focused, "F2", 120, 240, 60);
+            GUILayout.EndHorizontal();
+
+            GUILayout.Space(2);
+            EnableArrowTimeAdjust = UIUtils.M3Switch(EnableArrowTimeAdjust,
+                UseChinese ? "允许左右键调整延迟(游戏中)" : "Allow adjustment of delay using left and right keys (in-game)");
+            GUILayout.Space(2);
+            HighPrecisionTime = UIUtils.M3Switch(HighPrecisionTime,
+                UseChinese ? "启用高精度时间（提高同步精度）" : "Enable High Precision Time (improves sync accuracy)");
+            GUILayout.Space(2);
+            HighPrecisionAsync = UIUtils.M3Switch(HighPrecisionAsync,
+                UseChinese ? "[实验性]启用高精度异步" : "[Experimental]Enable High Precision Async");
+            GUILayout.EndVertical();
+        }
+
+        // ─────────────────────────────────────────────
+        //  按键设置卡
+        // ─────────────────────────────────────────────
+        private void DrawKeySettingsCard()
+        {
+            GUILayout.BeginVertical(UIUtils.CardStyle);
+            GUILayout.Label(UseChinese ? "按键设置" : "Key Settings", UIUtils.HeaderStyle);
+            GUILayout.Space(2);
+
+            if (!Main.Settings.EnableTechniqueSimulation)
+            {
+                GUILayout.BeginHorizontal();
+                GUILayout.Label(UseChinese ? "按键序列 (逗号分隔)" : "Keys (comma separated)",
+                    UIUtils.LabelStyle, GUILayout.Width(180));
+                MacroKeys = GUILayout.TextField(MacroKeys, UIUtils.TextFieldStyle, GUILayout.ExpandWidth(true));
+                GUILayout.EndHorizontal();
+            }
+
+            GUILayout.Space(2);
+            bool newSim = UIUtils.M3Switch(SimulateKeyPress, UseChinese ? "按键模拟" : "Key simulation");
+            if (newSim != SimulateKeyPress) { SimulateKeyPress = newSim; ADOBase.controller.Restart(); }
+
+            if (SimulateKeyPress)
+            {
+                GUILayout.Space(2);
+                SkyHookMode = UIUtils.M3Switch(SkyHookMode,
+                    UseChinese ? "使用高级输入(否则使用SendInput API)" : "Use advanced input (if closed, use SendInput API)");
+
+                if (SkyHookMode)
+                {
+                    GUILayout.Space(6);
+                    Color oc = GUI.color;
+                    GUI.color = new Color(0.5f, 0.5f, 0.5f, 0.3f);
+                    GUILayout.Box("", GUILayout.Height(1), GUILayout.ExpandWidth(true));
+                    GUI.color = oc;
+                    GUILayout.Space(4);
+
+                    GUILayout.BeginHorizontal();
+                    GUILayout.Label(UseChinese ? "Win API 输入模式" : "Win API Input Mode",
+                        UIUtils.LabelStyle, GUILayout.Width(150));
+                    if (InputSystem.IsInitialized)
+                    {
+                        var actual = InputSystem.GetInputMode();
+                        GUIStyle hintStyle = new(UIUtils.LabelStyle);
+                        hintStyle.normal.textColor = new Color(0.5f, 0.9f, 0.5f, 0.8f);
+                        hintStyle.fontSize = 10;
+                        GUILayout.Label(UseChinese
+                            ? $"[实际: {GetModeLabel(actual, true)}]"
+                            : $"[Active: {GetModeLabel(actual, false)}]", hintStyle);
+                    }
+                    GUILayout.EndHorizontal();
+                    GUILayout.Space(4);
+
+                    bool hasInject = !ADOFAIMacro.Macro.InputSystem.IsInitialized ||
+                                     ADOFAIMacro.Macro.InputSystem.IsModeAvailable(ADOFAIMacro.Macro.InputMode.NtUserInjectKeyboard);
+                    bool hasNtSend = !ADOFAIMacro.Macro.InputSystem.IsInitialized ||
+                                     ADOFAIMacro.Macro.InputSystem.IsModeAvailable(ADOFAIMacro.Macro.InputMode.NtUserSendInput);
+
+                    string[] modeLabels = UseChinese
+                        ? ["自动", "NtInject", "NtSendInput ★", "SendInput"]
+                        : ["Auto", "NtInject", "NtSendInput ★", "SendInput"];
+
+                    GUILayout.BeginHorizontal();
+                    for (int i = 0; i < 4; i++)
+                    {
+                        bool available = i switch { 1 => hasInject, 2 => hasNtSend, _ => true };
+                        string lbl = modeLabels[i] + (available ? "" : (UseChinese ? "(不支持)" : "(N/A)"));
+                        if (GUILayout.Button(lbl, UIUtils.ButtonStyle, GUILayout.Height(24)) && available && InputMode != i)
+                            InputMode = i;
+                    }
+                    GUILayout.EndHorizontal();
+
+                    GUILayout.Space(4);
+                    GUIStyle descStyle = new(UIUtils.LabelStyle);
+                    descStyle.normal.textColor = new Color(0.75f, 0.75f, 0.75f, 0.8f);
+                    descStyle.fontSize = 10;
+                    descStyle.wordWrap = true;
+                    GUILayout.Label(InputMode switch
+                    {
+                        0 => UseChinese ? "自动：优先使用最底层可用方式" : "Auto: use the lowest available layer automatically",
+                        1 => UseChinese ? "NtInject（最底层）：直接注入原始输入流" : "NtInject (deepest): inject into raw input stream",
+                        2 => UseChinese ? "NtSendInput ★：内核边界注入" : "NtSendInput ★: kernel-boundary injection",
+                        3 => UseChinese ? "SendInput：标准 Win32 API，兼容性最佳" : "SendInput: standard Win32 API, best compatibility",
+                        _ => ""
+                    }, descStyle);
+                }
+            }
+            GUILayout.EndVertical();
+        }
+
+        private string GetModeLabel(Macro.InputMode mode, bool chinese) => mode switch
+        {
+            ADOFAIMacro.Macro.InputMode.Auto => chinese ? "自动" : "Auto",
+            ADOFAIMacro.Macro.InputMode.NtUserInjectKeyboard => chinese ? "NtInject" : "NtInject",
+            ADOFAIMacro.Macro.InputMode.NtUserSendInput => chinese ? "NtSendInput ★" : "NtSendInput ★",
+            ADOFAIMacro.Macro.InputMode.SendInput => chinese ? "SendInput" : "SendInput",
+            _ => mode.ToString()
+        };
+
+        // ─────────────────────────────────────────────
+        //  按键过滤卡
+        // ─────────────────────────────────────────────
+        private void DrawKeyFilterCard()
+        {
+            GUILayout.BeginVertical(UIUtils.CardStyle);
+            GUILayout.Label(UseChinese ? "按键过滤" : "Key Filter", UIUtils.HeaderStyle);
+            GUILayout.Space(2);
+
+            bool newEnable = UIUtils.M3Switch(EnableKeyFilter, UseChinese ? "启用按键过滤" : "Enable Key Filter");
+            if (newEnable != EnableKeyFilter) EnableKeyFilter = newEnable;
+
+            if (EnableKeyFilter)
+            {
+                GUILayout.Space(6);
+                Color oc = GUI.color;
+                GUI.color = new Color(0.5f, 0.5f, 0.5f, 0.3f);
+                GUILayout.Box("", GUILayout.Height(1), GUILayout.ExpandWidth(true));
+                GUI.color = oc;
+                GUILayout.Space(4);
+
+                GUILayout.BeginHorizontal();
+                GUILayout.Label(UseChinese ? "过滤模式" : "Filter Mode", UIUtils.LabelStyle, GUILayout.Width(100));
+                string[] modes = UseChinese ? ["黑名单模式", "白名单模式"] : ["Blacklist Mode", "Whitelist Mode"];
+                int newMode = UIUtils.M3SelectionGrid(FilterMode, modes, 2, GUILayout.Width(200));
+                if (newMode != FilterMode) FilterMode = newMode;
+                GUILayout.EndHorizontal();
+
+                GUILayout.Space(8);
+                GUIStyle descStyle = new(UIUtils.LabelStyle);
+                descStyle.normal.textColor = new Color(0.7f, 0.7f, 0.7f, 0.8f);
+                descStyle.fontSize = 11;
+                descStyle.wordWrap = true;
+                GUILayout.Label(FilterMode == 0
+                    ? (UseChinese ? "⛔ 黑名单模式：列表中的按键将被阻止" : "⛔ Blacklist: Keys in the list will be blocked")
+                    : (UseChinese ? "✅ 白名单模式：只有列表中的按键允许通过" : "✅ Whitelist: Only keys in the list are allowed"),
+                    descStyle);
+                GUILayout.Space(8);
+
+                GUILayout.BeginHorizontal();
+                GUILayout.Label(UseChinese ? "按键列表 (逗号分隔)" : "Keys (comma separated)",
+                    UIUtils.LabelStyle, GUILayout.Width(140));
+                string newFK = UIUtils.M3TextField(FilteredKeys,
+                    ref _filteredKeysState.input, ref _filteredKeysState.focused,
+                    UIUtils.TextFieldStyle, "TechnicalkeysNormal");
+                if (newFK != FilteredKeys) FilteredKeys = newFK;
+                GUILayout.EndHorizontal();
+
+                GUILayout.BeginHorizontal();
+                GUILayout.Label(UseChinese ? "异步按键列表 (逗号分隔)" : "Async Keys (comma separated)",
+                    UIUtils.LabelStyle, GUILayout.Width(140));
+                if (SkyHookMode)
+                {
+                    string newAK = UIUtils.M3TextField(FilteredAsyncKeys,
+                        ref _filteredAsyncKeysState.input, ref _filteredAsyncKeysState.focused,
+                        UIUtils.TextFieldStyle, "TechnicalkeysAsync");
+                    if (newAK != FilteredAsyncKeys) FilteredAsyncKeys = newAK;
+                }
+                else
+                {
+                    GUIStyle dis = new(UIUtils.LabelStyle);
+                    dis.normal.textColor = new Color(0.5f, 0.5f, 0.5f, 0.5f);
+                    GUILayout.Label(UseChinese ? "（需开启 SkyHook 模式）" : "(Requires SkyHook Mode)", dis);
+                }
+                GUILayout.EndHorizontal();
+
+                GUILayout.Space(8);
+                GUILayout.Label(UseChinese ? "常用按键:" : "Common Keys:", UIUtils.LabelStyle);
+                GUILayout.Space(2);
+
+                void QuickSet(string k) { FilteredKeys = k; if (SkyHookMode) FilteredAsyncKeys = k; }
+
+                GUILayout.BeginHorizontal();
+                if (GUILayout.Button("F1,F2,F3,F4", UIUtils.ButtonStyle, GUILayout.ExpandWidth(true))) QuickSet("F1,F2,F3,F4");
+                if (GUILayout.Button("F5,F6,F7,F8", UIUtils.ButtonStyle, GUILayout.ExpandWidth(true))) QuickSet("F5,F6,F7,F8");
+                if (GUILayout.Button("F9,F10,F11,F12", UIUtils.ButtonStyle, GUILayout.ExpandWidth(true))) QuickSet("F9,F10,F11,F12");
+                GUILayout.EndHorizontal();
+
+                GUILayout.BeginHorizontal();
+                if (GUILayout.Button("A,S,D,F", UIUtils.ButtonStyle, GUILayout.ExpandWidth(true))) QuickSet("A,S,D,F");
+                if (GUILayout.Button("J,K,L", UIUtils.ButtonStyle, GUILayout.ExpandWidth(true))) QuickSet("J,K,L");
+                if (GUILayout.Button("1,2,3,4", UIUtils.ButtonStyle, GUILayout.ExpandWidth(true))) QuickSet("1,2,3,4");
+                GUILayout.EndHorizontal();
+
+                GUILayout.BeginHorizontal();
+                if (GUILayout.Button("SPACE,ENTER,ESC", UIUtils.ButtonStyle, GUILayout.ExpandWidth(true))) QuickSet("SPACE,ENTER,ESC");
+                if (GUILayout.Button("UP,DOWN,LEFT,RIGHT", UIUtils.ButtonStyle, GUILayout.ExpandWidth(true))) QuickSet("UP,DOWN,LEFT,RIGHT");
+                if (GUILayout.Button("CTRL,ALT,SHIFT", UIUtils.ButtonStyle, GUILayout.ExpandWidth(true))) QuickSet("CTRL,ALT,SHIFT");
+                GUILayout.EndHorizontal();
+
+                GUILayout.Space(8);
+                GUIStyle tipStyle = new(UIUtils.LabelStyle);
+                tipStyle.normal.textColor = new Color(0.7f, 0.7f, 0.7f, 0.7f);
+                tipStyle.fontSize = 10;
+                tipStyle.wordWrap = true;
+                GUILayout.Label(UseChinese
+                    ? "提示：支持按键名称（A、B、SPACE、ENTER等）和虚拟键码（0x41格式）。多个按键用逗号分隔。"
+                    : "Tip: Supports key names (A, B, SPACE, ENTER, etc.) and virtual key codes (0x41 format). Separate multiple keys with commas.",
+                    tipStyle);
+            }
+            GUILayout.EndVertical();
+        }
+
+        // ─────────────────────────────────────────────
+        //  其他选项卡
+        // ─────────────────────────────────────────────
+        private void DrawOtherSettingsCard()
+        {
+            GUILayout.BeginVertical(UIUtils.CardStyle);
+            GUILayout.Label(UseChinese ? "其他选项" : "Other Settings", UIUtils.HeaderStyle);
+            GUILayout.Space(2);
+
+            bool newDK = UIUtils.M3Switch(EnableDeathKey,
+                UseChinese ? "死亡后自动按键(仅SkyHook模式)" : "Auto-press key on death(Only SkyHook Mode)");
+            if (newDK != EnableDeathKey) EnableDeathKey = newDK;
+
+            if (EnableDeathKey)
+            {
+                GUILayout.Space(6);
+                Color oc = GUI.color;
+                GUI.color = new Color(0.5f, 0.5f, 0.5f, 0.3f);
+                GUILayout.Box("", GUILayout.Height(1), GUILayout.ExpandWidth(true));
+                GUI.color = oc;
+                GUILayout.Space(4);
+
+                GUILayout.BeginHorizontal();
+                DeathKeyDelay = UIUtils.M3HorizontalSliderWithLabelAndInput(
+                    UseChinese ? "延迟秒数" : "Delay (seconds)",
+                    DeathKeyDelay, 0.1f, 30f,
+                    ref _deathKeyDelayState.input, ref _deathKeyDelayState.focused, "F1", 140, 200, 60);
+                GUILayout.EndHorizontal();
+                GUILayout.Space(4);
+
+                GUILayout.BeginHorizontal();
+                GUILayout.Label(UseChinese ? "按键" : "Key", UIUtils.LabelStyle, GUILayout.Width(80));
+                string newDKI = GUILayout.TextField(DeathKeyInput, UIUtils.TextFieldStyle, GUILayout.Width(100));
+                if (newDKI != DeathKeyInput) DeathKeyInput = newDKI;
+                GUILayout.Space(10);
+                GUIStyle codeStyle = new(UIUtils.LabelStyle);
+                codeStyle.normal.textColor = new Color(0.6f, 0.6f, 0.6f, 0.8f);
+                codeStyle.fontSize = 10;
+                GUILayout.Label($"0x{DeathKeyCode:X2}", codeStyle);
+                GUILayout.FlexibleSpace();
+                GUILayout.EndHorizontal();
+
+                GUILayout.Space(4);
+                GUILayout.BeginHorizontal();
+                foreach (string k in new[] { "R", "SPACE", "ENTER", "F2", "ESC" })
+                    if (GUILayout.Button(k, UIUtils.ButtonStyle, GUILayout.ExpandWidth(true)))
+                        DeathKeyInput = k;
+                GUILayout.EndHorizontal();
+
+                GUILayout.Space(2);
+                GUIStyle tipStyle = new(UIUtils.LabelStyle);
+                tipStyle.normal.textColor = new Color(0.7f, 0.7f, 0.7f, 0.7f);
+                tipStyle.fontSize = 10;
+                tipStyle.wordWrap = true;
+                GUILayout.Label(UseChinese
+                    ? "提示：可直接输入字母、数字、F1-F12或特殊键名（如SPACE、ENTER），也可输入十六进制代码（如0x52）"
+                    : "Tip: Enter letters, numbers, F1-F12, or special keys (like SPACE, ENTER), or hex code (e.g., 0x52)",
+                    tipStyle);
+                GUILayout.Space(4);
+            }
+
+            ChangeNoFaillInPlay = UIUtils.M3Switch(ChangeNoFaillInPlay,
+                UseChinese ? "游戏中允许切换失败模式" : "The game allows switching to failure mode");
+            ChangeJudementInPlay = UIUtils.M3Switch(ChangeJudementInPlay,
+                UseChinese ? "游戏中允许切换判定" : "Switching Judement is allowed in the game");
+
+            bool newLock = UIUtils.M3Switch(LockLevelEditor,
+                UseChinese ? "锁定关卡编辑器（防止误操作）" : "Lock Level Editor (prevent misoperation)");
+            if (LockLevelEditor != newLock)
+            {
+                LockLevelEditor = newLock;
+                if (ADOBase.sceneName == GCNS.sceneEditor) ADOBase.controller.Restart();
+            }
+            GUILayout.EndVertical();
+        }
+
+        // ─────────────────────────────────────────────
+        //  作者卡
+        // ─────────────────────────────────────────────
+        private void DrawAuthorCard()
+        {
+            GUILayout.BeginVertical(UIUtils.CardStyle);
+            GUIStyle authorStyle = new(UIUtils.LabelStyle);
+            authorStyle.normal.textColor = new Color(0.8f, 0.8f, 0.8f, 0.8f);
+            authorStyle.richText = true;
+            authorStyle.alignment = TextAnchor.MiddleLeft;
+
+            GUILayout.BeginHorizontal();
+            GUILayout.Label($"👤 {Main.Mod.Info.Author}", authorStyle);
+            GUILayout.FlexibleSpace();
+            string ver = Main.Mod.Info.Version.Replace('\n', ' ').Replace('\r', ' ');
+            GUILayout.Label($"📦 {ver}", authorStyle);
+            GUILayout.FlexibleSpace();
+            GUILayout.Label($"📧 {(UseChinese ? "hitmargin@qq.com" : "hitmargin@Outlook.com")}", authorStyle);
+            GUILayout.EndHorizontal();
+
+            GUILayout.Space(4);
+            Color oc = GUI.color;
+            GUI.color = new Color(0.5f, 0.5f, 0.5f, 0.3f);
+            GUILayout.Box("", GUILayout.Height(10), GUILayout.ExpandWidth(true));
+            GUI.color = oc;
+            GUILayout.Space(4);
+
+            GUIStyle thanksStyle = new(UIUtils.LabelStyle);
+            thanksStyle.normal.textColor = new Color(0.7f, 0.7f, 0.7f, 0.4f);
+            thanksStyle.fontSize = 9;
+            thanksStyle.alignment = TextAnchor.MiddleCenter;
+            GUILayout.Label(UseChinese
+                ? $"❤️ 感谢使用 {Main.Mod.Info.Id}"
+                : $"❤️ Thanks for using {Main.Mod.Info.Id}", thanksStyle);
+            GUILayout.EndVertical();
+        }
+
+        // ─────────────────────────────────────────────
+        //  测试版卡
+        // ─────────────────────────────────────────────
+        private void DrawBetaCard()
+        {
+            GUILayout.BeginHorizontal();
+            GUIStyle betaStyle = new(UIUtils.LabelStyle);
+            betaStyle.normal.textColor = new Color(1f, 0.5f, 0f, 0.9f);
+            betaStyle.fontSize = 12;
+            betaStyle.fontStyle = FontStyle.Bold;
+            betaStyle.alignment = TextAnchor.MiddleLeft;
+            betaStyle.richText = true;
+            GUILayout.Label(UseChinese
+                ? $"⚠️ 测试版本 {BetaVersion} - 功能可能不稳定，请谨慎使用 ⚠️"
+                : $"⚠️ Beta Version {BetaVersion} - Features may be unstable, use with caution ⚠️", betaStyle);
+
+            GUIStyle feedbackStyle = new(UIUtils.LabelStyle);
+            feedbackStyle.normal.textColor = new Color(0.5f, 0.5f, 0.5f, 0.7f);
+            feedbackStyle.fontSize = 10;
+            feedbackStyle.alignment = TextAnchor.MiddleRight;
+            GUILayout.Space(4);
+            GUILayout.Label(UseChinese
+                ? "如遇问题请通过邮箱反馈，感谢您的测试！"
+                : "Please report issues via email. Thank you for testing!", feedbackStyle);
+            GUILayout.EndHorizontal();
+        }
+
+        // ─────────────────────────────────────────────
+        //  更新日志卡
+        // ─────────────────────────────────────────────
+        private Vector2 _updateLogScrollPos;
+        private void DrawUpdateLogCard()
+        {
+            GUILayout.BeginVertical(UIUtils.CardStyle);
+            GUILayout.Label(UseChinese ? "更新日志" : "What's New", UIUtils.HeaderStyle);
+            GUILayout.Space(4);
+            _updateLogScrollPos = GUILayout.BeginScrollView(_updateLogScrollPos, GUILayout.Height(150));
+            GUIStyle logStyle = new(UIUtils.LabelStyle) { wordWrap = true, richText = true };
+            string ver = Main.Mod.Info.Version.Replace('\n', ' ').Replace('\r', ' ');
+            GUILayout.Label(UseChinese
+                ? $"<b>版本 {ver}</b>\n• 手法模拟优化和修复\n• 分段支持按键覆盖"
+                : $"<b>Version {ver}</b>\n• Technique Simulation Optimization and Repair\n• Per-segment key override support",
+                logStyle);
+            GUILayout.EndScrollView();
+            GUILayout.EndVertical();
+        }
+
+        // ─────────────────────────────────────────────
+        //  手法模拟主卡
+        // ─────────────────────────────────────────────
         private void DrawTechniqueSimCard()
         {
             GUILayout.BeginVertical(UIUtils.CardStyle);
             GUILayout.Label(UseChinese ? "手法模拟" : "Technique Simulation", UIUtils.HeaderStyle);
             GUILayout.Space(2);
-
-            GUILayout.Label(UseChinese ? "注：最开始进入游戏需要死亡一次来校准时间" : "Note: The first time you enter the game, you need to die once to calibrate the time.", UIUtils.HeaderStyle);
+            GUILayout.Label(
+                UseChinese ? "注：最开始进入游戏需要死亡一次来校准时间"
+                           : "Note: The first time you enter the game, you need to die once to calibrate the time.",
+                UIUtils.HeaderStyle);
             GUILayout.Space(2);
 
-            // 检查DLL状态
             bool dllLoaded = TechniqueSimulator.IsDllLoaded();
 
             GUILayout.BeginHorizontal();
-
 #if DEBUG
-            // DEBUG模式显示版本信息和开关
-            GUILayout.BeginVertical(); // 垂直布局容纳多行
-
-            // 第一行：调试模式状态
+            GUILayout.BeginVertical();
             GUILayout.BeginHorizontal();
-            string versionInfo = UseChinese
+            GUIStyle verStyle = new(UIUtils.LabelStyle);
+            verStyle.normal.textColor = new Color(0.3f, 0.6f, 1f, 0.8f);
+            GUILayout.Label(UseChinese
                 ? $"🔧 调试模式 - {(dllLoaded ? "DLL可用" : "DLL不可用")}"
-                : $"🔧 Debug Mode - {(dllLoaded ? "DLL Available" : "DLL Unavailable")}";
-            GUIStyle versionStyle = new(UIUtils.LabelStyle);
-            versionStyle.normal.textColor = new Color(0.3f, 0.6f, 1f, 0.8f);
-            GUILayout.Label(versionInfo, versionStyle);
+                : $"🔧 Debug Mode - {(dllLoaded ? "DLL Available" : "DLL Unavailable")}", verStyle);
             GUILayout.EndHorizontal();
 
-            // 第二行：C++/C#切换开关（仅当DLL可用时显示）
             if (dllLoaded)
             {
                 GUILayout.BeginHorizontal();
-                GUILayout.Space(20); // 缩进
-
-                bool newUseCpp = UIUtils.M3Switch(UseCppTechniqueInDebug,
-                    UseChinese ? "使用C++版本" : "Use C++ Version");
+                GUILayout.Space(20);
+                bool newUseCpp = UIUtils.M3Switch(UseCppTechniqueInDebug, UseChinese ? "使用C++版本" : "Use C++ Version");
                 if (newUseCpp != UseCppTechniqueInDebug)
                 {
                     UseCppTechniqueInDebug = newUseCpp;
-                    // 可以在这里添加提示
                     ADOFAIMacro.Macro.Macro.Log($"[Macro] 手法模拟切换到{(newUseCpp ? "C++" : "C#")}版本");
                 }
-
                 GUILayout.EndHorizontal();
             }
             else
             {
-                // DLL不可用时显示提示
                 GUILayout.BeginHorizontal();
                 GUILayout.Space(20);
                 GUIStyle warnStyle = new(UIUtils.LabelStyle);
                 warnStyle.normal.textColor = new Color(0.8f, 0.5f, 0.5f, 0.8f);
                 warnStyle.fontSize = 10;
-                GUILayout.Label(UseChinese
-                    ? "⚠️ DLL不可用，将使用C#版本"
-                    : "⚠️ DLL unavailable, using C# version",
-                    warnStyle);
+                GUILayout.Label(UseChinese ? "⚠️ DLL不可用，将使用C#版本" : "⚠️ DLL unavailable, using C# version", warnStyle);
                 GUILayout.EndHorizontal();
             }
-
-            GUILayout.EndVertical(); // 结束垂直布局
-
+            GUILayout.EndVertical();
 #else
-            // 正式版只显示状态
             string dllStatus = dllLoaded
                 ? (UseChinese ? "✅ C++原生DLL已加载" : "✅ C++ Native DLL Loaded")
                 : (UseChinese ? "❌ 检测不到手法模拟库" : "❌ Technique simulation library not found");
-            if (!dllLoaded)
-                Main.Settings.EnableTechniqueSimulation = false; // 强制禁用
-
+            if (!dllLoaded) Main.Settings.EnableTechniqueSimulation = false;
             GUIStyle statusStyle = new(UIUtils.LabelStyle);
             statusStyle.normal.textColor = dllLoaded ? new Color(0.3f, 0.8f, 0.3f) : new Color(0.8f, 0.3f, 0.3f);
             GUILayout.Label(dllStatus, statusStyle);
 #endif
-
             GUILayout.EndHorizontal();
             GUILayout.Space(4);
 
-            // 保存GUI状态
             bool oldEnabled = GUI.enabled;
-
 #if !DEBUG
-            // 正式版且DLL未加载时禁用
-            if (!dllLoaded)
-            {
-                GUI.enabled = false;
-            }
+            if (!dllLoaded) GUI.enabled = false;
 #endif
-
             bool newEnable = UIUtils.M3Switch(EnableTechniqueSimulation,
                 UseChinese ? "启用手法模拟（左右手交替）" : "Enable Technique Simulation (L/R alternation)");
-
-            // 恢复GUI状态
             GUI.enabled = oldEnabled;
 
 #if !DEBUG
-            // 只有启用时才允许修改
             if (dllLoaded && newEnable != EnableTechniqueSimulation)
-            {
                 EnableTechniqueSimulation = newEnable;
-            }
 #else
             if (newEnable != EnableTechniqueSimulation)
-            {
-            EnableTechniqueSimulation = newEnable;
-            }
+                EnableTechniqueSimulation = newEnable;
 #endif
 
-            // 如果DLL未加载且是正式版，显示提示信息后直接返回
 #if !DEBUG
             if (!dllLoaded)
             {
                 GUILayout.Space(4);
-                GUIStyle warningStyle = new(UIUtils.LabelStyle)
+                GUIStyle warnStyle = new(UIUtils.LabelStyle)
                 {
                     fontSize = 11,
                     wordWrap = true,
@@ -1213,20 +962,13 @@ namespace ADOFAIMacro
                 };
                 GUILayout.Label(UseChinese
                     ? "请将 TechniqueSimulator.dll 放在 Mods/BaseMacro/ 目录下"
-                    : "Please place TechniqueSimulator.dll in Mods/BaseMacro/ directory",
-                    warningStyle);
+                    : "Please place TechniqueSimulator.dll in Mods/BaseMacro/ directory", warnStyle);
                 GUILayout.EndVertical();
                 return;
             }
 #endif
+            if (!EnableTechniqueSimulation) { GUILayout.EndVertical(); return; }
 
-            if (!EnableTechniqueSimulation)
-            {
-                GUILayout.EndVertical();
-                return;
-            }
-
-            // 确保至少有一个配置
             if (_techniqueProfiles.Count == 0)
             {
                 _techniqueProfiles.Add(new TechniqueProfile());
@@ -1240,26 +982,19 @@ namespace ADOFAIMacro
             GUI.color = orig;
             GUILayout.Space(4);
 
-            // ── 配置管理区域 ─────────────────────────────────────
+            // ── 配置管理 ────────────────────────────────────
             GUILayout.BeginHorizontal();
-
-            // 配置名称输入框
             GUILayout.Label(UseChinese ? "配置名称" : "Profile Name", UIUtils.LabelStyle, GUILayout.Width(100));
-            string newName = GUILayout.TextField(_techniqueProfiles[SelectedTechniqueProfileIndex].name, UIUtils.TextFieldStyle, GUILayout.ExpandWidth(true));
+            string newName = GUILayout.TextField(_techniqueProfiles[SelectedTechniqueProfileIndex].name,
+                UIUtils.TextFieldStyle, GUILayout.ExpandWidth(true));
             if (newName != _techniqueProfiles[SelectedTechniqueProfileIndex].name)
-            {
                 _techniqueProfiles[SelectedTechniqueProfileIndex].name = newName;
-            }
 
-            // 新建按钮
             if (GUILayout.Button(UseChinese ? "新建" : "New", UIUtils.ButtonStyle, GUILayout.Width(60)))
             {
-                var newProfile = _techniqueProfiles[SelectedTechniqueProfileIndex].Clone();
-                _techniqueProfiles.Add(newProfile);
-                SelectedTechniqueProfileIndex = _techniqueProfiles.Count - 1; // 自动切换到新配置
+                _techniqueProfiles.Add(_techniqueProfiles[SelectedTechniqueProfileIndex].Clone());
+                SelectedTechniqueProfileIndex = _techniqueProfiles.Count - 1;
             }
-
-            // 删除按钮
             if (GUILayout.Button(UseChinese ? "删除" : "Delete", UIUtils.ButtonStyle, GUILayout.Width(60)))
             {
                 if (_techniqueProfiles.Count > 1)
@@ -1269,38 +1004,31 @@ namespace ADOFAIMacro
                 }
             }
             GUILayout.EndHorizontal();
-
             GUILayout.Space(4);
 
-            // 配置下拉选择
             GUILayout.BeginHorizontal();
             GUILayout.Label(UseChinese ? "选择配置" : "Select Profile", UIUtils.LabelStyle, GUILayout.Width(100));
             string[] profileNames = _techniqueProfiles.Select(p => p.name).ToArray();
-            int newIndex = UIUtils.M3SelectionGrid(SelectedTechniqueProfileIndex, profileNames, Mathf.Min(profileNames.Length, 4), GUILayout.ExpandWidth(true));
-            if (newIndex != SelectedTechniqueProfileIndex)
-            {
-                // 切换前自动保存当前修改（已实时同步，无需额外操作）
-                SelectedTechniqueProfileIndex = newIndex;
-            }
+            int newIdx = UIUtils.M3SelectionGrid(SelectedTechniqueProfileIndex, profileNames,
+                Mathf.Min(profileNames.Length, 4), GUILayout.ExpandWidth(true));
+            if (newIdx != SelectedTechniqueProfileIndex) SelectedTechniqueProfileIndex = newIdx;
             GUILayout.EndHorizontal();
-
             GUILayout.Space(8);
 
-            // 起始手偏好
+            // ── 起始手 ─────────────────────────────────────
             GUILayout.BeginHorizontal();
             GUILayout.Label(UseChinese ? "起始手" : "Starting Hand", UIUtils.LabelStyle, GUILayout.Width(140));
             string[] handOptions = UseChinese ? ["左手", "右手"] : ["Left", "Right"];
-            int newHandPref = UIUtils.M3SelectionGrid(TechniqueHandPreference, handOptions, 2, GUILayout.Width(200));
-            if (newHandPref != TechniqueHandPreference)
+            int newHand = UIUtils.M3SelectionGrid(TechniqueHandPreference, handOptions, 2, GUILayout.Width(200));
+            if (newHand != TechniqueHandPreference)
             {
-                TechniqueHandPreference = newHandPref;
-                // 同步到当前配置
-                _techniqueProfiles[SelectedTechniqueProfileIndex].handPreference = newHandPref;
+                TechniqueHandPreference = newHand;
+                _techniqueProfiles[SelectedTechniqueProfileIndex].handPreference = newHand;
             }
             GUILayout.EndHorizontal();
             GUILayout.Space(8);
 
-            // 速度阈值
+            // ── 全局 BPM 阈值 ────────────────────────────────
             GUILayout.BeginHorizontal();
             TechniqueBpmLimit = UIUtils.M3HorizontalSliderWithLabelAndInput(
                 UseChinese ? "全局·速度阈值 (BPM)" : "Global · Speed Threshold (BPM)",
@@ -1319,136 +1047,77 @@ namespace ADOFAIMacro
                 ? "超过此BPM时自动细分时间片，允许同一只手连续承担多个事件"
                 : "Above this BPM, time slices are subdivided so one hand handles multiple events", tipStyle);
 
+            // ── 变速分段 ─────────────────────────────────────
             DrawTechniqueSegments();
 
             GUILayout.Space(8);
 
-            // 左右手按键配置
+            // ── 全局左右手按键 ────────────────────────────────
             string[] handLabels = UseChinese ? ["左手", "右手"] : ["Left Hand", "Right Hand"];
 
-            // 左手
             GUILayout.Label($"── {handLabels[0]} ──", UIUtils.LabelStyle);
             GUILayout.Space(2);
 
-            // 左手按键序列
             GUILayout.BeginHorizontal();
             GUILayout.Label(UseChinese ? "按键序列:" : "Keys:", UIUtils.LabelStyle, GUILayout.Width(80));
-            string newLeftKeys = UIUtils.M3TextField(TechLeftHandKeys,
-                ref _techLeftKeysState.input,
-                ref _techLeftKeysState.focused,
-                UIUtils.TextFieldStyle,
-                "TechLeftKeys");
-            if (newLeftKeys != TechLeftHandKeys)
-            {
-                TechLeftHandKeys = newLeftKeys;
-                _techniqueProfiles[SelectedTechniqueProfileIndex].leftHandKeys = newLeftKeys;
-            }
+            string newLK = UIUtils.M3TextField(TechLeftHandKeys, ref _techLeftKeysState.input, ref _techLeftKeysState.focused, UIUtils.TextFieldStyle, "TechLeftKeys");
+            if (newLK != TechLeftHandKeys) { TechLeftHandKeys = newLK; _techniqueProfiles[SelectedTechniqueProfileIndex].leftHandKeys = newLK; }
             GUILayout.EndHorizontal();
 
-            // 左手时长比例
             GUILayout.BeginHorizontal();
             GUILayout.Label(UseChinese ? "时长比例:" : "Press Ratio:", UIUtils.LabelStyle, GUILayout.Width(80));
-            string newLeftPress = UIUtils.M3TextField(TechLeftHandPressTimes,
-                ref _techLeftPressTimesState.input,
-                ref _techLeftPressTimesState.focused,
-                UIUtils.TextFieldStyle,
-                "TechLeftPressTimes");
-            if (newLeftPress != TechLeftHandPressTimes)
-            {
-                TechLeftHandPressTimes = newLeftPress;
-                _techniqueProfiles[SelectedTechniqueProfileIndex].leftHandPressTimes = newLeftPress;
-            }
+            string newLP = UIUtils.M3TextField(TechLeftHandPressTimes, ref _techLeftPressTimesState.input, ref _techLeftPressTimesState.focused, UIUtils.TextFieldStyle, "TechLeftPressTimes");
+            if (newLP != TechLeftHandPressTimes) { TechLeftHandPressTimes = newLP; _techniqueProfiles[SelectedTechniqueProfileIndex].leftHandPressTimes = newLP; }
             GUILayout.EndHorizontal();
 
-            // 左手按键顺序
             GUILayout.BeginHorizontal();
             GUILayout.Label(UseChinese ? "按键顺序:" : "Key Order:", UIUtils.LabelStyle, GUILayout.Width(80));
-            string newLeftOrder = UIUtils.M3TextField(TechLeftHandOrders,
-                ref _techLeftOrdersState.input,
-                ref _techLeftOrdersState.focused,
-                UIUtils.TextFieldStyle,
-                "TechLeftOrders");
-            if (newLeftOrder != TechLeftHandOrders)
-            {
-                TechLeftHandOrders = newLeftOrder;
-                _techniqueProfiles[SelectedTechniqueProfileIndex].leftHandOrders = newLeftOrder;
-            }
+            string newLO = UIUtils.M3TextField(TechLeftHandOrders, ref _techLeftOrdersState.input, ref _techLeftOrdersState.focused, UIUtils.TextFieldStyle, "TechLeftOrders");
+            if (newLO != TechLeftHandOrders) { TechLeftHandOrders = newLO; _techniqueProfiles[SelectedTechniqueProfileIndex].leftHandOrders = newLO; }
             GUILayout.EndHorizontal();
 
             GUILayout.Space(6);
 
-            // 右手
             GUILayout.Label($"── {handLabels[1]} ──", UIUtils.LabelStyle);
             GUILayout.Space(2);
 
-            // 右手按键序列
             GUILayout.BeginHorizontal();
             GUILayout.Label(UseChinese ? "按键序列:" : "Keys:", UIUtils.LabelStyle, GUILayout.Width(80));
-            string newRightKeys = UIUtils.M3TextField(TechRightHandKeys,
-                ref _techRightKeysState.input,
-                ref _techRightKeysState.focused,
-                UIUtils.TextFieldStyle,
-                "TechRightKeys");
-            if (newRightKeys != TechRightHandKeys)
-            {
-                TechRightHandKeys = newRightKeys;
-                _techniqueProfiles[SelectedTechniqueProfileIndex].rightHandKeys = newRightKeys;
-            }
+            string newRK = UIUtils.M3TextField(TechRightHandKeys, ref _techRightKeysState.input, ref _techRightKeysState.focused, UIUtils.TextFieldStyle, "TechRightKeys");
+            if (newRK != TechRightHandKeys) { TechRightHandKeys = newRK; _techniqueProfiles[SelectedTechniqueProfileIndex].rightHandKeys = newRK; }
             GUILayout.EndHorizontal();
 
-            // 右手时长比例
             GUILayout.BeginHorizontal();
             GUILayout.Label(UseChinese ? "时长比例:" : "Press Ratio:", UIUtils.LabelStyle, GUILayout.Width(80));
-            string newRightPress = UIUtils.M3TextField(TechRightHandPressTimes,
-                ref _techRightPressTimesState.input,
-                ref _techRightPressTimesState.focused,
-                UIUtils.TextFieldStyle,
-                "TechRightPressTimes");
-            if (newRightPress != TechRightHandPressTimes)
-            {
-                TechRightHandPressTimes = newRightPress;
-                _techniqueProfiles[SelectedTechniqueProfileIndex].rightHandPressTimes = newRightPress;
-            }
+            string newRP = UIUtils.M3TextField(TechRightHandPressTimes, ref _techRightPressTimesState.input, ref _techRightPressTimesState.focused, UIUtils.TextFieldStyle, "TechRightPressTimes");
+            if (newRP != TechRightHandPressTimes) { TechRightHandPressTimes = newRP; _techniqueProfiles[SelectedTechniqueProfileIndex].rightHandPressTimes = newRP; }
             GUILayout.EndHorizontal();
 
-            // 右手按键顺序
             GUILayout.BeginHorizontal();
             GUILayout.Label(UseChinese ? "按键顺序:" : "Key Order:", UIUtils.LabelStyle, GUILayout.Width(80));
-            string newRightOrder = UIUtils.M3TextField(TechRightHandOrders,
-                ref _techRightOrdersState.input,
-                ref _techRightOrdersState.focused,
-                UIUtils.TextFieldStyle,
-                "TechRightOrders");
-            if (newRightOrder != TechRightHandOrders)
-            {
-                TechRightHandOrders = newRightOrder;
-                _techniqueProfiles[SelectedTechniqueProfileIndex].rightHandOrders = newRightOrder;
-            }
+            string newRO = UIUtils.M3TextField(TechRightHandOrders, ref _techRightOrdersState.input, ref _techRightOrdersState.focused, UIUtils.TextFieldStyle, "TechRightOrders");
+            if (newRO != TechRightHandOrders) { TechRightHandOrders = newRO; _techniqueProfiles[SelectedTechniqueProfileIndex].rightHandOrders = newRO; }
             GUILayout.EndHorizontal();
 
-            // 常用预设
+            // ── 预设 ──────────────────────────────────────────
             GUILayout.Space(6);
             GUILayout.Label(UseChinese ? "预设:" : "Presets:", UIUtils.LabelStyle);
             GUILayout.BeginHorizontal();
             if (GUILayout.Button("DF / JK", UIUtils.ButtonStyle, GUILayout.ExpandWidth(true)))
             {
-                TechLeftHandKeys = "D,F";
-                TechRightHandKeys = "J,K";
-                // 同步到配置
+                TechLeftHandKeys = "D,F"; TechRightHandKeys = "J,K";
                 _techniqueProfiles[SelectedTechniqueProfileIndex].leftHandKeys = "D,F";
                 _techniqueProfiles[SelectedTechniqueProfileIndex].rightHandKeys = "J,K";
             }
             if (GUILayout.Button("DS / JK", UIUtils.ButtonStyle, GUILayout.ExpandWidth(true)))
             {
-                TechLeftHandKeys = "D,S";
-                TechRightHandKeys = "J,K";
+                TechLeftHandKeys = "D,S"; TechRightHandKeys = "J,K";
                 _techniqueProfiles[SelectedTechniqueProfileIndex].leftHandKeys = "D,S";
                 _techniqueProfiles[SelectedTechniqueProfileIndex].rightHandKeys = "J,K";
             }
             if (GUILayout.Button("ASDF / JKL", UIUtils.ButtonStyle, GUILayout.ExpandWidth(true)))
             {
-                TechLeftHandKeys = "A,S,D,F";
-                TechRightHandKeys = "J,K,L";
+                TechLeftHandKeys = "A,S,D,F"; TechRightHandKeys = "J,K,L";
                 _techniqueProfiles[SelectedTechniqueProfileIndex].leftHandKeys = "A,S,D,F";
                 _techniqueProfiles[SelectedTechniqueProfileIndex].rightHandKeys = "J,K,L";
             }
@@ -1463,73 +1132,151 @@ namespace ADOFAIMacro
             GUILayout.EndVertical();
         }
 
+        // ─────────────────────────────────────────────
+        //  变速分段 UI（可折叠 + 按键覆盖）
+        // ─────────────────────────────────────────────
         private void DrawTechniqueSegments()
         {
             var currentProfile = _techniqueProfiles[SelectedTechniqueProfileIndex];
             var segments = currentProfile.techniqueSegments;
 
-            // 确保状态列表与分段数量一致
-            while (_segmentEditStates.Count < segments.Count)
-                _segmentEditStates.Add(new SegmentEditState());
-            while (_segmentEditStates.Count > segments.Count)
-                _segmentEditStates.RemoveAt(_segmentEditStates.Count - 1);
+            // 同步辅助列表长度
+            while (_segmentEditStates.Count < segments.Count) _segmentEditStates.Add(new SegmentEditState());
+            while (_segmentEditStates.Count > segments.Count) _segmentEditStates.RemoveAt(_segmentEditStates.Count - 1);
+            while (_segmentExpanded.Count < segments.Count) _segmentExpanded.Add(false);
+            while (_segmentExpanded.Count > segments.Count) _segmentExpanded.RemoveAt(_segmentExpanded.Count - 1);
 
+            GUILayout.Space(6);
             GUILayout.Label(UseChinese ? "变速分段设置" : "Speed Segments", UIUtils.HeaderStyle);
+
+            GUIStyle tipStyle = new(UIUtils.LabelStyle)
+            {
+                fontSize = 10,
+                wordWrap = true,
+                normal = { textColor = new Color(0.65f, 0.65f, 0.65f, 0.8f) }
+            };
+            GUILayout.Label(UseChinese
+                ? "留空的按键字段将继承全局配置。"
+                : "Empty key fields inherit the global configuration.", tipStyle);
+            GUILayout.Space(4);
 
             for (int i = 0; i < segments.Count; i++)
             {
                 var seg = segments[i];
                 var state = _segmentEditStates[i];
 
+                // ── 标题行（折叠/展开 + 删除）───────────────
                 GUILayout.BeginHorizontal();
 
-                GUILayout.Label($"段 {i + 1}:", UIUtils.LabelStyle, GUILayout.Width(40));
+                string arrow = _segmentExpanded[i] ? "▼" : "▶";
+                string overrideMk = seg.HasKeyOverride ? " ✎" : "";
+                string segLabel = UseChinese
+                    ? $"{arrow} 段 {i + 1}  [{seg.startFloor}~{seg.endFloor}]  BPM≤{seg.bpmLimit:F0}{overrideMk}"
+                    : $"{arrow} Seg {i + 1}  [{seg.startFloor}~{seg.endFloor}]  BPM≤{seg.bpmLimit:F0}{overrideMk}";
 
-                string newStart = UIUtils.M3TextField(
-                    seg.startFloor.ToString(),
-                    ref state.startInput,
-                    ref state.startFocused,
-                    UIUtils.TextFieldStyle,
-                    $"SegStart_{i}",
-                    GUILayout.Width(50)
-                );
-                if (int.TryParse(newStart, out int newStartVal))
-                    seg.startFloor = newStartVal;
+                if (GUILayout.Button(segLabel, UIUtils.ButtonStyle, GUILayout.ExpandWidth(true)))
+                    _segmentExpanded[i] = !_segmentExpanded[i];
 
-                GUILayout.Label(" ~ ", UIUtils.LabelStyle, GUILayout.Width(20));
-
-                string newEnd = UIUtils.M3TextField(
-                    seg.endFloor.ToString(),
-                    ref state.endInput,
-                    ref state.endFocused,
-                    UIUtils.TextFieldStyle,
-                    $"SegEnd_{i}",
-                    GUILayout.Width(50)
-                );
-                if (int.TryParse(newEnd, out int newEndVal))
-                    seg.endFloor = newEndVal;
-
-                seg.bpmLimit = UIUtils.M3HorizontalSliderWithLabelAndInput(
-                    "", seg.bpmLimit, 50f, 2000f,
-                    ref state.bpmInput, ref state.bpmFocused,
-                    "F0", 0, 80, 60
-                );
-
-                if (GUILayout.Button("X", UIUtils.ButtonStyle, GUILayout.Width(40)))
+                if (GUILayout.Button("✕", UIUtils.ButtonStyle, GUILayout.Width(36)))
                 {
                     segments.RemoveAt(i);
                     _segmentEditStates.RemoveAt(i);
+                    _segmentExpanded.RemoveAt(i);
                     i--;
+                    continue;
                 }
-
                 GUILayout.EndHorizontal();
+
+                if (!_segmentExpanded[i]) continue;
+
+                // ── 展开内容 ─────────────────────────────────
+                GUILayout.BeginVertical();
+                GUILayout.Space(2);
+
+                // 地板范围
+                GUILayout.BeginHorizontal();
+                GUILayout.Space(16);
+                GUILayout.Label(UseChinese ? "起始地板" : "Start Floor", UIUtils.LabelStyle, GUILayout.Width(80));
+                string newStart = UIUtils.M3TextField(seg.startFloor.ToString(),
+                    ref state.startInput, ref state.startFocused,
+                    UIUtils.TextFieldStyle, $"SegStart_{i}", GUILayout.Width(60));
+                if (int.TryParse(newStart, out int sv)) seg.startFloor = sv;
+
+                GUILayout.Label(" ~ ", UIUtils.LabelStyle, GUILayout.Width(20));
+                GUILayout.Label(UseChinese ? "结束地板" : "End Floor", UIUtils.LabelStyle, GUILayout.Width(80));
+                string newEnd = UIUtils.M3TextField(seg.endFloor.ToString(),
+                    ref state.endInput, ref state.endFocused,
+                    UIUtils.TextFieldStyle, $"SegEnd_{i}", GUILayout.Width(60));
+                if (int.TryParse(newEnd, out int ev)) seg.endFloor = ev;
+                GUILayout.EndHorizontal();
+
+                // BPM 阈值
+                GUILayout.BeginHorizontal();
+                GUILayout.Space(16);
+                seg.bpmLimit = UIUtils.M3HorizontalSliderWithLabelAndInput(
+                    UseChinese ? "BPM 阈值" : "BPM Limit",
+                    seg.bpmLimit, 50f, 2000f,
+                    ref state.bpmInput, ref state.bpmFocused,
+                    "F0", 80, 160, 60);
+                GUILayout.EndHorizontal();
+
+                // 分隔线
+                GUILayout.Space(4);
+                Color oc = GUI.color;
+                GUI.color = new Color(0.5f, 0.5f, 0.5f, 0.2f);
+                GUILayout.Box("", GUILayout.Height(1), GUILayout.ExpandWidth(true));
+                GUI.color = oc;
+                GUILayout.Space(4);
+
+                // ── 按键覆盖（可选）──────────────────────────
+                GUILayout.BeginHorizontal();
+                GUILayout.Space(16);
+                GUILayout.Label(UseChinese ? "左手按键:" : "L Keys:", UIUtils.LabelStyle, GUILayout.Width(80));
+                seg.leftHandKeys = GUILayout.TextField(seg.leftHandKeys, UIUtils.TextFieldStyle, GUILayout.ExpandWidth(true));
+                GUILayout.EndHorizontal();
+
+                GUILayout.BeginHorizontal();
+                GUILayout.Space(16);
+                GUILayout.Label(UseChinese ? "右手按键:" : "R Keys:", UIUtils.LabelStyle, GUILayout.Width(80));
+                seg.rightHandKeys = GUILayout.TextField(seg.rightHandKeys, UIUtils.TextFieldStyle, GUILayout.ExpandWidth(true));
+                GUILayout.EndHorizontal();
+
+                GUILayout.BeginHorizontal();
+                GUILayout.Space(16);
+                GUILayout.Label(UseChinese ? "左手时长:" : "L Ratio:", UIUtils.LabelStyle, GUILayout.Width(80));
+                seg.leftHandPressTimes = GUILayout.TextField(seg.leftHandPressTimes, UIUtils.TextFieldStyle, GUILayout.ExpandWidth(true));
+                GUILayout.EndHorizontal();
+
+                GUILayout.BeginHorizontal();
+                GUILayout.Space(16);
+                GUILayout.Label(UseChinese ? "右手时长:" : "R Ratio:", UIUtils.LabelStyle, GUILayout.Width(80));
+                seg.rightHandPressTimes = GUILayout.TextField(seg.rightHandPressTimes, UIUtils.TextFieldStyle, GUILayout.ExpandWidth(true));
+                GUILayout.EndHorizontal();
+
+                GUILayout.BeginHorizontal();
+                GUILayout.Space(16);
+                GUILayout.Label(UseChinese ? "左手顺序:" : "L Order:", UIUtils.LabelStyle, GUILayout.Width(80));
+                seg.leftHandOrders = GUILayout.TextField(seg.leftHandOrders, UIUtils.TextFieldStyle, GUILayout.ExpandWidth(true));
+                GUILayout.EndHorizontal();
+
+                GUILayout.BeginHorizontal();
+                GUILayout.Space(16);
+                GUILayout.Label(UseChinese ? "右手顺序:" : "R Order:", UIUtils.LabelStyle, GUILayout.Width(80));
+                seg.rightHandOrders = GUILayout.TextField(seg.rightHandOrders, UIUtils.TextFieldStyle, GUILayout.ExpandWidth(true));
+                GUILayout.EndHorizontal();
+
+                GUILayout.Space(4);
+                GUILayout.EndVertical();
             }
 
-            if (GUILayout.Button(UseChinese ? "添加分段" : "Add Segment", UIUtils.ButtonStyle))
-            {
-                segments.Add(new TechniqueSegment());
-            }
+            GUILayout.Space(2);
+            if (GUILayout.Button(UseChinese ? "+ 添加分段" : "+ Add Segment", UIUtils.ButtonStyle))
+                segments.Add(new TechniqueSegment { bpmLimit = Main.Settings.TechniqueBpmLimit });
         }
+
+        // ─────────────────────────────────────────────
+        //  持久化
+        // ─────────────────────────────────────────────
         public void OnSaveGUI(UnityModManager.ModEntry modEntry) => Save(modEntry);
         public override void Save(UnityModManager.ModEntry modEntry) => Save(this, modEntry);
         public static Settings Load(UnityModManager.ModEntry modEntry) => Load<Settings>(modEntry);
