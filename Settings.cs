@@ -44,12 +44,12 @@ namespace ADOFAIMacro
                     leftHandPressTimes = this.leftHandPressTimes,
                     rightHandPressTimes = this.rightHandPressTimes,
                     handPreference = this.handPreference,
-                    techniqueSegments = this.techniqueSegments.Select(s => new TechniqueSegment
+                    techniqueSegments = [.. this.techniqueSegments.Select(s => new TechniqueSegment
                     {
                         startFloor = s.startFloor,
                         endFloor = s.endFloor,
                         bpmLimit = s.bpmLimit
-                    }).ToList()
+                    })]
                 };
             }
         }
@@ -62,7 +62,7 @@ namespace ADOFAIMacro
             public float bpmLimit;   // 该段的 BPM 阈值
                                      // 可扩展：左右手按键、顺序等
         }
-        public List<TechniqueSegment> techniqueSegments = new List<TechniqueSegment>();
+        public List<TechniqueSegment> techniqueSegments = [];
         private class SegmentEditState
         {
             public string startInput = "";
@@ -72,7 +72,7 @@ namespace ADOFAIMacro
             public string bpmInput = "";
             public bool bpmFocused;
         }
-        private List<SegmentEditState> _segmentEditStates = new List<SegmentEditState>();
+        private readonly List<SegmentEditState> _segmentEditStates = [];
 
         public event Action<bool> OnMacroChanged;
 

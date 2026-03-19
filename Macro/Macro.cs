@@ -110,7 +110,9 @@ namespace ADOFAIMacro.Macro
             // 静态数据版本号，跳过热帧对不变字段的重复赋值
             public int staticVersion;
 
+#pragma warning disable IDE1006 // 命名样式
             public bool valid
+#pragma warning restore IDE1006 // 命名样式
             {
                 [MethodImpl(MethodImplOptions.AggressiveInlining)]
                 get => Volatile.Read(ref validFlag) == 1;
@@ -181,9 +183,9 @@ namespace ADOFAIMacro.Macro
         private static byte[] _techLeftKeys = [];
         private static byte[] _techRightKeys = [];
         // [hand][keyCount-1][i] → 第 i 次按键使用的键下标
-        private static int[][][] _techKeyOrders = { [], [] };
+        private static readonly int[][][] _techKeyOrders = [[], []];
         // [hand][keyIndex] → 按下时长占比(0~1)
-        private static double[][] _techPressDur = { [], [] };
+        private static readonly double[][] _techPressDur = [[], []];
 
         private static List<Settings.TechniqueSegment>? _currentSegments;
 
