@@ -825,7 +825,7 @@ namespace ADOFAIMacro.Macro
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
         private static double GetAdviceBpm(double limit)
         {
-            double bpm = (double)(conductor!.bpm * ADOBase.controller.speed * conductor.song.pitch);
+            double bpm = (double)(conductor!.bpm * ADOBase.controller.speed);
             while (bpm > limit) bpm /= 2.0;
             while (bpm <= limit / 2.0) bpm *= 2.0;
             return bpm;
@@ -964,7 +964,7 @@ namespace ADOFAIMacro.Macro
                     if (TechniqueSimulator.BuildHitEvents(
                             [.. evTime], [.. evPress], [.. evFloor],
                             total,
-                            conductor!.bpm, ADOBase.controller.speed, conductor.song.pitch,
+                            conductor!.bpm, ADOBase.controller.speed,
                             out var nativeEvents))
                     {
                         _hitEvents = nativeEvents;

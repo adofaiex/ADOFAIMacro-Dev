@@ -281,7 +281,7 @@ namespace ADOFAIMacro.Macro
             [In] int[] pressTypes,
             [In] int[] floorIndices,
             int eventCount,
-            double bpm, double speed, double pitch,
+            double bpm, double speed,
             out int outEventCount);
 
         [UnmanagedFunctionPointer(CallingConvention.Cdecl)]
@@ -384,7 +384,7 @@ namespace ADOFAIMacro.Macro
             int[] pressTypes,
             int[] floorIndices,
             int eventCount,
-            double bpm, double speed, double pitch,
+            double bpm, double speed,
             out Macro.HitEvent[]? hitEvents)
         {
             hitEvents = null;
@@ -405,7 +405,7 @@ namespace ADOFAIMacro.Macro
 
                 nativeEvents = _buildTechEvents!(
                     entryTimes, pressTypes, floorIndices,
-                    eventCount, bpm, speed, pitch,
+                    eventCount, bpm, speed,
                     out int outCount);
 
                 if (nativeEvents != IntPtr.Zero && outCount > 0)
