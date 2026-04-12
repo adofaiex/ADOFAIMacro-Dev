@@ -47,8 +47,9 @@ namespace ADOFAIMacro.Macro
         private static scrFloor[]? cachedFloors;
         private static bool initialized = false;
         private static string lastKeysSetting = "";
-        private static readonly List<byte> keyCodes = [with(4)];
-        private static int _keyCodesVersion = 0;
+        // Immutable snapshot - updated atomically, read without lock
+        private static volatile byte[] _keyCodesSnapshot = Array.Empty<byte>();
+        private static volatile int _keyCodesVersion = 0;
 
         // ─────────────────────────────────────────────
         //  只读共享数据（初始化后不变）
@@ -60,7 +61,7 @@ namespace ADOFAIMacro.Macro
         // ─────────────────────────────────────────────
         //  预分配对象池（减少 GC 压力）
         // ─────────────────────────────────────────────
-        private static readonly HitEvent[] _hitEventPool = new HitEvent[16384];
+        private static readonly HitEvent[] _hitEventPool = new HitEvent[65536];
         private static int _hitEventPoolUsed;
 
         // 复用缓冲区
@@ -269,9 +270,10 @@ namespace ADOFAIMacro.Macro
 
             if (anchor.keyCodesVersion != _keyCodesVersion)
             {
-                if (anchor.keyCodesSnapshot.Length != keyCodes.Count)
-                    anchor.keyCodesSnapshot = new byte[keyCodes.Count];
-                keyCodes.CopyTo(anchor.keyCodesSnapshot, 0);
+                var localSnapshot = _keyCodesSnapshot; // atomic read
+                if (anchor.keyCodesSnapshot.Length != localSnapshot.Length)
+                    anchor.keyCodesSnapshot = new byte[localSnapshot.Length];
+                Array.Copy(localSnapshot, anchor.keyCodesSnapshot, localSnapshot.Length);
                 anchor.keyCodesVersion = _keyCodesVersion;
             }
 
@@ -558,7 +560,7 @@ namespace ADOFAIMacro.Macro
             int n = floors.Length;
             bool simulate = Main.Settings.SimulateKeyPress;
 
-            byte[] keys = [.. keyCodes];
+            byte[] keys = _keyCodesSnapshot;
             int keyLen = keys.Length;
             int keyIdx = 0;
 
@@ -628,11 +630,10 @@ namespace ADOFAIMacro.Macro
         private static void ParseKeyCodes()
         {
             string keysSetting = Main.Settings.MacroKeys ?? "J";
-            if (keysSetting == lastKeysSetting && keyCodes.Count > 0) return;
+            if (keysSetting == lastKeysSetting && _keyCodesSnapshot.Length > 0) return;
 
             lastKeysSetting = keysSetting;
-            keyCodes.Clear();
-
+            var newList = new List<byte>(4);
             foreach (string part in keysSetting.Split([','], StringSplitOptions.RemoveEmptyEntries))
             {
                 string keyName = part.Trim().ToUpperInvariant();
@@ -640,13 +641,15 @@ namespace ADOFAIMacro.Macro
                 if (keyName.Length == 1)
                 {
                     char c = keyName[0];
-                    if (c is >= 'A' and <= 'Z') { keyCodes.Add((byte)c); continue; }
-                    if (c is >= '0' and <= '9') { keyCodes.Add((byte)c); continue; }
+                    if (c is >= 'A' and <= 'Z') { newList.Add((byte)c); continue; }
+                    if (c is >= '0' and <= '9') { newList.Add((byte)c); continue; }
                 }
-                if (KeyMap.KeyNameToCode.TryGetValue(keyName, out byte code)) keyCodes.Add(code);
+                if (KeyMap.KeyNameToCode.TryGetValue(keyName, out byte code)) newList.Add(code);
             }
-            if (keyCodes.Count == 0) keyCodes.Add(0x4A);
-            _keyCodesVersion++;
+            if (newList.Count == 0) newList.Add(0x4A);
+            var newArray = newList.ToArray();
+            System.Threading.Interlocked.Exchange(ref _keyCodesSnapshot, newArray);
+            System.Threading.Volatile.Write(ref _keyCodesVersion, _keyCodesVersion + 1);
         }
 
         [MethodImpl(MethodImplOptions.AggressiveInlining)]

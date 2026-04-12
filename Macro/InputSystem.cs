@@ -32,10 +32,10 @@ namespace ADOFAIMacro.Macro
         [DllImport("kernel32.dll", SetLastError = true, CharSet = CharSet.Ansi)]
         private static extern IntPtr LoadLibrary(string lpFileName);
 
-        [DllImport("kernel32.dll", SetLastError = true)]
+        [DllImport("kernel32.dll", SetLastError = true, CharSet = CharSet.Ansi)]
         private static extern IntPtr GetProcAddress(IntPtr hModule, string procName);
 
-        [DllImport("kernel32.dll")]
+        [DllImport("kernel32.dll", SetLastError = true)]
         private static extern bool FreeLibrary(IntPtr hModule);
 
         // ══════════════════════════════════════════════════════
