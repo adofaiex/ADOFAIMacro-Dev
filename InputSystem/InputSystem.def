@@ -1,0 +1,12 @@
+EXPORTS
+    Initialize @1
+    PushKeyEvent @2
+    SendKeyDirect @3
+    SendKeyCombination @4
+    SendText @5
+    StartProcessing @6
+    StopProcessing @7
+    ClearQueue @8
+    GetInputQueueStatus @9
+    Shutdown @10
+    EmergencyStop @11

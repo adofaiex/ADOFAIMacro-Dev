@@ -58,6 +58,18 @@ namespace ADOFAIMacro.Macro
         private static int floorCount;
 
         // ─────────────────────────────────────────────
+        //  预分配对象池（减少 GC 压力）
+        // ─────────────────────────────────────────────
+        private static readonly HitEvent[] _hitEventPool = new HitEvent[16384];
+        private static int _hitEventPoolUsed;
+
+        // 复用缓冲区
+        private static readonly List<double> _evTimeRecycle = new(4096);
+        private static readonly List<int> _evPressRecycle = new(4096);
+        private static readonly List<int> _evFloorRecycle = new(4096);
+        private static readonly List<PieceInfo> _piecesRecycle = new(1024);
+
+        // ─────────────────────────────────────────────
         //  时间锚点（双缓冲）
         // ─────────────────────────────────────────────
         private sealed class TimeAnchor
@@ -161,142 +173,6 @@ namespace ADOFAIMacro.Macro
         // ─────────────────────────────────────────────
         //  按键名称 → VK 映射（internal，供 TechniqueSimulator 复用）
         // ─────────────────────────────────────────────
-        internal static readonly Dictionary<string, byte> KeyNameToCode = new()
-        {
-            ["A"] = 0x41,
-            ["B"] = 0x42,
-            ["C"] = 0x43,
-            ["D"] = 0x44,
-            ["E"] = 0x45,
-            ["F"] = 0x46,
-            ["G"] = 0x47,
-            ["H"] = 0x48,
-            ["I"] = 0x49,
-            ["J"] = 0x4A,
-            ["K"] = 0x4B,
-            ["L"] = 0x4C,
-            ["M"] = 0x4D,
-            ["N"] = 0x4E,
-            ["O"] = 0x4F,
-            ["P"] = 0x50,
-            ["Q"] = 0x51,
-            ["R"] = 0x52,
-            ["S"] = 0x53,
-            ["T"] = 0x54,
-            ["U"] = 0x55,
-            ["V"] = 0x56,
-            ["W"] = 0x57,
-            ["X"] = 0x58,
-            ["Y"] = 0x59,
-            ["Z"] = 0x5A,
-            ["0"] = 0x30,
-            ["1"] = 0x31,
-            ["2"] = 0x32,
-            ["3"] = 0x33,
-            ["4"] = 0x34,
-            ["5"] = 0x35,
-            ["6"] = 0x36,
-            ["7"] = 0x37,
-            ["8"] = 0x38,
-            ["9"] = 0x39,
-            ["`"] = 0xC0,
-            ["-"] = 0xBD,
-            ["="] = 0xBB,
-            ["["] = 0xDB,
-            ["]"] = 0xDD,
-            ["\\"] = 0xDC,
-            [";"] = 0xBA,
-            ["'"] = 0xDE,
-            [","] = 0xBC,
-            ["."] = 0xBE,
-            ["/"] = 0xBF,
-            [" "] = 0x20,
-            ["F1"] = 0x70,
-            ["F2"] = 0x71,
-            ["F3"] = 0x72,
-            ["F4"] = 0x73,
-            ["F5"] = 0x74,
-            ["F6"] = 0x75,
-            ["F7"] = 0x76,
-            ["F8"] = 0x77,
-            ["F9"] = 0x78,
-            ["F10"] = 0x79,
-            ["F11"] = 0x7A,
-            ["F12"] = 0x7B,
-            ["CTRL"] = 0x11,
-            ["LCTRL"] = 0xA2,
-            ["RCTRL"] = 0xA3,
-            ["SHIFT"] = 0x10,
-            ["LSHIFT"] = 0xA0,
-            ["RSHIFT"] = 0xA1,
-            ["ALT"] = 0x12,
-            ["LALT"] = 0xA4,
-            ["RALT"] = 0xA5,
-            ["WIN"] = 0x5B,
-            ["LWIN"] = 0x5B,
-            ["RWIN"] = 0x5C,
-            ["MENU"] = 0x5D,
-            ["LEFT"] = 0x25,
-            ["UP"] = 0x26,
-            ["RIGHT"] = 0x27,
-            ["DOWN"] = 0x28,
-            ["HOME"] = 0x24,
-            ["END"] = 0x23,
-            ["PAGEUP"] = 0x21,
-            ["PAGEDOWN"] = 0x22,
-            ["INSERT"] = 0x2D,
-            ["DELETE"] = 0x2E,
-            ["BACKSPACE"] = 0x08,
-            ["TAB"] = 0x09,
-            ["ENTER"] = 0x0D,
-            ["RETURN"] = 0x0D,
-            ["ESC"] = 0x1B,
-            ["ESCAPE"] = 0x1B,
-            ["SPACE"] = 0x20,
-            ["SPACEBAR"] = 0x20,
-            ["NUMPAD0"] = 0x60,
-            ["NUMPAD1"] = 0x61,
-            ["NUMPAD2"] = 0x62,
-            ["NUMPAD3"] = 0x63,
-            ["NUMPAD4"] = 0x64,
-            ["NUMPAD5"] = 0x65,
-            ["NUMPAD6"] = 0x66,
-            ["NUMPAD7"] = 0x67,
-            ["NUMPAD8"] = 0x68,
-            ["NUMPAD9"] = 0x69,
-            ["NUMPADMULTIPLY"] = 0x6A,
-            ["NUMPADADD"] = 0x6B,
-            ["NUMPADSEPARATOR"] = 0x6C,
-            ["NUMPADSUBTRACT"] = 0x6D,
-            ["NUMPADDECIMAL"] = 0x6E,
-            ["NUMPADDIVIDE"] = 0x6F,
-            ["NUMPADENTER"] = 0x0D,
-            ["NUMLOCK"] = 0x90,
-            ["PRINTSCREEN"] = 0x2C,
-            ["SCROLLLOCK"] = 0x91,
-            ["PAUSE"] = 0x13,
-            ["BREAK"] = 0x13,
-            ["CAPSLOCK"] = 0x14,
-            ["HELP"] = 0x2F,
-            ["VOLUME_MUTE"] = 0xAD,
-            ["VOLUME_DOWN"] = 0xAE,
-            ["VOLUME_UP"] = 0xAF,
-            ["MEDIA_NEXT_TRACK"] = 0xB0,
-            ["MEDIA_PREV_TRACK"] = 0xB1,
-            ["MEDIA_STOP"] = 0xB2,
-            ["MEDIA_PLAY_PAUSE"] = 0xB3,
-            ["BROWSER_HOME"] = 0xAC,
-            ["BROWSER_SEARCH"] = 0xAA,
-            ["BROWSER_FAVORITES"] = 0xAB,
-            ["BROWSER_REFRESH"] = 0xA8,
-            ["BROWSER_STOP"] = 0xA9,
-            ["BROWSER_FORWARD"] = 0xA7,
-            ["BROWSER_BACK"] = 0xA6,
-            ["LAUNCH_MAIL"] = 0xB4,
-            ["LAUNCH_MEDIA_SELECT"] = 0xB5,
-            ["LAUNCH_APP1"] = 0xB6,
-            ["LAUNCH_APP2"] = 0xB7,
-        };
 
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
         private static byte[] ParseTechKeyList(string? input)
@@ -309,7 +185,7 @@ namespace ADOFAIMacro.Macro
                 if (string.IsNullOrEmpty(name)) continue;
                 if (name.Length == 1 && name[0] >= 'A' && name[0] <= 'Z') { result.Add((byte)name[0]); continue; }
                 if (name.Length == 1 && name[0] >= '0' && name[0] <= '9') { result.Add((byte)name[0]); continue; }
-                if (KeyNameToCode.TryGetValue(name, out byte code)) result.Add(code);
+                if (KeyMap.KeyNameToCode.TryGetValue(name, out byte code)) result.Add(code);
             }
             return result.Count == 0 ? [0x4A] : [.. result];
         }
@@ -686,7 +562,9 @@ namespace ADOFAIMacro.Macro
             int keyLen = keys.Length;
             int keyIdx = 0;
 
-            var events = new List<HitEvent>(n);
+            // 使用对象池，减少 GC
+            _hitEventPoolUsed = 0;
+            var pool = _hitEventPool;
 
             for (int i = 0; i < n - 1; i++)
             {
@@ -699,16 +577,31 @@ namespace ADOFAIMacro.Macro
                 if (simulate && floor.holdLength > -1 && i + 1 < n)
                 {
                     var nf = floors[i + 1];
-                    if (nf != null && nf.holdLength == -1) { events.Add(new HitEvent(t, 0, releaseOnly: true)); continue; }
+                    if (nf != null && nf.holdLength == -1)
+                    {
+                        if (_hitEventPoolUsed < pool.Length)
+                            pool[_hitEventPoolUsed++] = new HitEvent(t, 0, releaseOnly: true);
+                        continue;
+                    }
                 }
 
                 byte key = keys[keyIdx];
                 if (++keyIdx >= keyLen) keyIdx = 0;
-                events.Add(new HitEvent(t, key, releaseOnly: false));
+                if (_hitEventPoolUsed < pool.Length)
+                    pool[_hitEventPoolUsed++] = new HitEvent(t, key, releaseOnly: false);
             }
 
-            _hitEvents = [.. events];
-            _hitEventCount = _hitEvents.Length;
+            if (_hitEventPoolUsed > 0 && _hitEventPoolUsed <= pool.Length)
+            {
+                _hitEvents = pool.AsSpan(0, _hitEventPoolUsed).ToArray();
+                _hitEventCount = _hitEvents.Length;
+            }
+            else
+            {
+                _hitEvents = [];
+                _hitEventCount = 0;
+            }
+
             Log($"[Macro-Main] BuildHitEvents 完成，共 {_hitEventCount} 个事件");
         }
 
@@ -750,7 +643,7 @@ namespace ADOFAIMacro.Macro
                     if (c is >= 'A' and <= 'Z') { keyCodes.Add((byte)c); continue; }
                     if (c is >= '0' and <= '9') { keyCodes.Add((byte)c); continue; }
                 }
-                if (KeyNameToCode.TryGetValue(keyName, out byte code)) keyCodes.Add(code);
+                if (KeyMap.KeyNameToCode.TryGetValue(keyName, out byte code)) keyCodes.Add(code);
             }
             if (keyCodes.Count == 0) keyCodes.Add(0x4A);
             _keyCodesVersion++;
@@ -993,9 +886,10 @@ namespace ADOFAIMacro.Macro
             var  floors  = cachedFloors!;
             bool sim     = Main.Settings.SimulateKeyPress;
 
-            var evTime  = new List<double>(floors.Length);
-            var evPress = new List<int>(floors.Length);
-            var evFloor = new List<int>(floors.Length);
+            // 使用对象池，避免分配
+            _evTimeRecycle.Clear();
+            _evPressRecycle.Clear();
+            _evFloorRecycle.Clear();
 
             for (int i = 0; i < floors.Length - 1; i++)
             {
@@ -1008,35 +902,46 @@ namespace ADOFAIMacro.Macro
 
                 if (sim && fl.holdLength > -1 && nf != null && nf.holdLength == -1)
                 {
-                    evTime.Add(t); evPress.Add(-1); evFloor.Add(i);
+                    _evTimeRecycle.Add(t); _evPressRecycle.Add(-1); _evFloorRecycle.Add(i);
                     continue;
                 }
 
                 bool isHoldHead = sim && nf != null && nf.holdLength > -1;
-                evTime.Add(t);
-                evPress.Add(isHoldHead ? 2 : 1);
-                evFloor.Add(i);
+                _evTimeRecycle.Add(t);
+                _evPressRecycle.Add(isHoldHead ? 2 : 1);
+                _evFloorRecycle.Add(i);
             }
 
-            int total = evTime.Count;
+            int total = _evTimeRecycle.Count;
             if (total == 0) { _hitEvents = []; _hitEventCount = 0; return; }
 
-            var pieces = new List<PieceInfo>(total);
-            BuildPieces(evTime, evPress, evFloor, total, pieces);
+            _piecesRecycle.Clear();
+            BuildPieces(_evTimeRecycle, _evPressRecycle, _evFloorRecycle, total, _piecesRecycle);
 
-            if (pieces.Count > 0)
+            if (_piecesRecycle.Count > 0)
             {
-                var lp = pieces[pieces.Count - 1];
-                pieces.Add(new PieceInfo(0, 1 - lp.Hand, lp.PieceLen,
+                var lp = _piecesRecycle[_piecesRecycle.Count - 1];
+                _piecesRecycle.Add(new PieceInfo(0, 1 - lp.Hand, lp.PieceLen,
                                          lp.EndTime, lp.EndTime + lp.PieceLen, total));
             }
 
-            var output = GenerateHitEventsFromPieces(evTime, evPress, evFloor, pieces, sim);
+            var output = GenerateHitEventsFromPieces(_evTimeRecycle, _evPressRecycle, _evFloorRecycle, _piecesRecycle, sim);
             FixSameKeyOverlaps(output);
 
-            _hitEvents     = [.. output];
+            // 使用对象池
+            if (output.Count > _hitEventPool.Length)
+            {
+                _hitEvents = output.ToArray(); // Fallback for overflow
+            }
+            else
+            {
+                for (int i = 0; i < output.Count; i++)
+                    _hitEventPool[i] = output[i];
+                _hitEvents = _hitEventPool.AsSpan(0, output.Count).ToArray();
+            }
+
             _hitEventCount = _hitEvents.Length;
-            Log($"[Macro-Main] C# 手法模拟完成：{_hitEventCount} 事件，{pieces.Count} 时间片");
+            Log($"[Macro-Main] C# 手法模拟完成：{_hitEventCount} 事件，{_piecesRecycle.Count} 时间片");
         }
 
         [MethodImpl(MethodImplOptions.AggressiveInlining)]

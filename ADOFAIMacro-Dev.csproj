@@ -147,6 +147,7 @@
     <Compile Include="Macro\DSPTimeSimulater.cs" />
     <Compile Include="Macro\AsyncInputManager.cs" />
     <Compile Include="Macro\InputSystem.cs" />
+    <Compile Include="Macro\KeyMap.cs" />
     <Compile Include="Macro\TechniqueSimulator.cs" />
     <Compile Include="Platform\BaseSelect.cs" />
     <Compile Include="Platform\Linux.cs" />
@@ -164,10 +165,51 @@
     <None Include="packages.config" />
   </ItemGroup>
   <ItemGroup>
-    <Content Include="InputSystem.dll">
-      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
-    </Content>
-    <Content Include="TechniqueSimulator.dll" />
+    <ProjectReference Include="TechniqueSimulator\TechniqueSimulator.vcxproj">
+      <Name>TechniqueSimulator</Name>
+    </ProjectReference>
+    <ProjectReference Include="InputSystem\InputSystem.vcxproj">
+      <Name>InputSystem</Name>
+    </ProjectReference>
   </ItemGroup>
   <Import Project="$(MSBuildToolsPath)\Microsoft.CSharp.targets" />
+
+  <!-- 复制 C++ 项目的 DLL 到输出目录、项目根目录和 out 目录 -->
+  <Target Name="CopyNativeDlls" AfterTargets="Build">
+    <PropertyGroup>
+      <!-- 可能的 DLL 位置 -->
+      <_TechSimDll1>$(ProjectDir)x64\$(Configuration)\TechniqueSimulator.dll</_TechSimDll1>
+      <_TechSimDll2>$(ProjectDir)x64\TechniqueSimulator.dll</_TechSimDll2>
+      <_TechSimDll3>$(ProjectDir)TechniqueSimulator\x64\$(Configuration)\TechniqueSimulator.dll</_TechSimDll3>
+      <_InputSysDll1>$(ProjectDir)x64\$(Configuration)\InputSystem.dll</_InputSysDll1>
+      <_InputSysDll2>$(ProjectDir)x64\InputSystem.dll</_InputSysDll2>
+      <_InputSysDll3>$(ProjectDir)InputSystem\x64\$(Configuration)\InputSystem.dll</_InputSysDll3>
+      <_OutDir>$(ProjectDir)out\$(Configuration)\</_OutDir>
+    </PropertyGroup>
+    <!-- 复制 TechniqueSimulator.dll -->
+    <Copy SourceFiles="$(_TechSimDll1)" DestinationFolder="$(OutDir)" Condition="Exists('$(_TechSimDll1)')" />
+    <Copy SourceFiles="$(_TechSimDll2)" DestinationFolder="$(OutDir)" Condition="Exists('$(_TechSimDll2)')" />
+    <Copy SourceFiles="$(_TechSimDll3)" DestinationFolder="$(OutDir)" Condition="Exists('$(_TechSimDll3)')" />
+    <Copy SourceFiles="$(_TechSimDll1)" DestinationFolder="$(ProjectDir)" Condition="Exists('$(_TechSimDll1)')" />
+    <Copy SourceFiles="$(_TechSimDll2)" DestinationFolder="$(ProjectDir)" Condition="Exists('$(_TechSimDll2)')" />
+    <Copy SourceFiles="$(_TechSimDll3)" DestinationFolder="$(ProjectDir)" Condition="Exists('$(_TechSimDll3)')" />
+    <!-- 复制 InputSystem.dll (尝试多个可能位置) -->
+    <Copy SourceFiles="$(_InputSysDll1)" DestinationFolder="$(OutDir)" Condition="Exists('$(_InputSysDll1)')" />
+    <Copy SourceFiles="$(_InputSysDll2)" DestinationFolder="$(OutDir)" Condition="Exists('$(_InputSysDll2)')" />
+    <Copy SourceFiles="$(_InputSysDll3)" DestinationFolder="$(OutDir)" Condition="Exists('$(_InputSysDll3)')" />
+    <Copy SourceFiles="$(_InputSysDll1)" DestinationFolder="$(ProjectDir)" Condition="Exists('$(_InputSysDll1)')" />
+    <Copy SourceFiles="$(_InputSysDll2)" DestinationFolder="$(ProjectDir)" Condition="Exists('$(_InputSysDll2)')" />
+    <Copy SourceFiles="$(_InputSysDll3)" DestinationFolder="$(ProjectDir)" Condition="Exists('$(_InputSysDll3)')" />
+    <!-- 复制到 out 目录 -->
+    <MakeDir Directories="$(_OutDir)" Condition="!Exists('$(_OutDir)')" />
+    <Copy SourceFiles="$(_TechSimDll1)" DestinationFolder="$(_OutDir)" Condition="Exists('$(_TechSimDll1)')" />
+    <Copy SourceFiles="$(_TechSimDll2)" DestinationFolder="$(_OutDir)" Condition="Exists('$(_TechSimDll2)')" />
+    <Copy SourceFiles="$(_TechSimDll3)" DestinationFolder="$(_OutDir)" Condition="Exists('$(_TechSimDll3)')" />
+    <Copy SourceFiles="$(_InputSysDll1)" DestinationFolder="$(_OutDir)" Condition="Exists('$(_InputSysDll1)')" />
+    <Copy SourceFiles="$(_InputSysDll2)" DestinationFolder="$(_OutDir)" Condition="Exists('$(_InputSysDll2)')" />
+    <Copy SourceFiles="$(_InputSysDll3)" DestinationFolder="$(_OutDir)" Condition="Exists('$(_InputSysDll3)')" />
+    <!-- 主程序 DLL 也复制到 out -->
+    <Copy SourceFiles="$(TargetPath)" DestinationFolder="$(_OutDir)" Condition="Exists('$(TargetPath)')" />
+    <Copy SourceFiles="$(ProjectDir)Info.json" DestinationFolder="$(_OutDir)" Condition="Exists('$(ProjectDir)Info.json')" />
+  </Target>
 </Project>

@@ -1,0 +1,4 @@
+EXPORTS
+    SetTechniqueConfig
+    BuildTechniqueHitEvents
+    FreeHitEvents

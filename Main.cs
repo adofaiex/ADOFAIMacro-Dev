@@ -101,13 +101,14 @@ namespace ADOFAIMacro
                     Mod?.Logger.Error("Modifying the Info.json file is NOT allowed!");
                     Application.Quit();
                 }
-
+                /*
                 var creplayMod = UnityModManager.modEntries.FirstOrDefault(m => m.Info.Id.Equals("CreplayMod", StringComparison.OrdinalIgnoreCase));
-                if (creplayMod != null)
+                if (creplayMod != null && creplayMod.Enabled)  // 若使用旧版 UnityModManager，可能是 .Enabled
                 {
                     Mod?.Logger.Error("Detected CreplayMod, which is incompatible. Exiting...");
                     Application.Quit();
                 }
+                */
 #endif
                 if (UnityModManager.modEntries.FirstOrDefault(m => m.Info.Id.Equals("BaseMacro", StringComparison.OrdinalIgnoreCase)) != null)
                 {
@@ -132,7 +133,7 @@ namespace ADOFAIMacro
             else
             {
                 IsEnabled = false;
-                Harmony?.UnpatchAll();
+                Harmony?.UnpatchAll(modEntry.Info.Id);
                 TrySetWindowTitle(null);
                 InputSystem.EmergencyStop();
                 TechniqueSimulator.Unload();

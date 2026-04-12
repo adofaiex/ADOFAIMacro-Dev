@@ -361,3 +361,8 @@ MigrationBackup/
 
 # Fody - auto-generated XML schema
 FodyWeavers.xsd
+GameCode/
+# Native DLLs in project root (built from C++ projects)
+TechniqueSimulator.dll
+InputSystem.dll
+ADOFAIMacro.dll

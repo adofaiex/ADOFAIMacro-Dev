@@ -1,0 +1,557 @@
+#include <windows.h>
+#include <queue>
+#include <thread>
+#include <mutex>
+#include <condition_variable>
+#include <atomic>
+#include <memory>
+#include <chrono>
+#include <vector>
+#include <set>
+#include <array>
+#include <cstdint>
+
+#pragma comment(lib, "user32.lib")
+#include "InputSystem.h"
+
+// 确保 INPUT_API 导出
+#ifndef INPUT_API
+#define INPUT_API __declspec(dllexport)
+#endif
+
+// ─────────────────────────────────────────────
+//  函数指针
+// ─────────────────────────────────────────────
+typedef UINT(NTAPI* NtUserInjectKeyboardInput_t)(KEYBDINPUT* pInputs, UINT nInputs);
+typedef UINT(WINAPI* NtUserSendInput_t)(UINT cInputs, LPINPUT pInputs, int cbSize);
+
+static NtUserInjectKeyboardInput_t pNtUserInjectKeyboardInput = nullptr;
+static NtUserSendInput_t           pNtUserSendInput = nullptr;
+
+// ─────────────────────────────────────────────
+//  扫描码缓存（256 项，初始化一次）
+// ─────────────────────────────────────────────
+static std::array<WORD, 256> g_scanCache = {};
+
+static void buildScanCache() {
+    for (int i = 0; i < 256; i++)
+        g_scanCache[i] = static_cast<WORD>(MapVirtualKey(i, MAPVK_VK_TO_VSC));
+}
+
+// ─────────────────────────────────────────────
+//  扩展键表
+// ─────────────────────────────────────────────
+static bool g_extTableBuilt = false;
+static bool g_extTable[256] = {};
+
+static void buildExtTable() {
+    if (g_extTableBuilt) return;
+    const BYTE ext[] = {
+        VK_LEFT, VK_RIGHT, VK_UP, VK_DOWN,
+        VK_HOME, VK_END, VK_PRIOR, VK_NEXT,
+        VK_INSERT, VK_DELETE,
+        VK_RCONTROL, VK_RMENU,
+        VK_NUMLOCK, VK_SNAPSHOT
+    };
+    for (BYTE k : ext) g_extTable[k] = true;
+    g_extTableBuilt = true;
+}
+
+// ─────────────────────────────────────────────
+//  按键事件结构
+// ─────────────────────────────────────────────
+struct KeyEvent {
+    BYTE  keyCode;
+    BOOL  isDown;
+    DWORD delayMs;
+
+    KeyEvent() : keyCode(0), isDown(FALSE), delayMs(0) {}
+    KeyEvent(BYTE k, BOOL d, DWORD ms) : keyCode(k), isDown(d), delayMs(ms) {}
+};
+
+// ─────────────────────────────────────────────
+//  无锁环形队列（多生产者单消费者）
+// ─────────────────────────────────────────────
+template<typename T, size_t MaxSize>
+class RingBuffer {
+    static_assert((MaxSize& (MaxSize - 1)) == 0, "MaxSize must be power of two");
+    T buffer_[MaxSize];
+    alignas(64) std::atomic<size_t> head_{ 0 };   // 读索引（消费者独占）
+    alignas(64) std::atomic<size_t> tail_{ 0 };   // 写索引（多生产者 CAS）
+
+public:
+    bool push(const T& item, bool& wasEmpty) {
+        size_t t = tail_.load(std::memory_order_relaxed);
+        size_t h;
+        do {
+            h = head_.load(std::memory_order_acquire);
+            if (t - h >= MaxSize)
+                return false;                       // 队列满
+        } while (!tail_.compare_exchange_weak(t, t + 1,
+            std::memory_order_acq_rel, std::memory_order_relaxed));
+
+        buffer_[t & (MaxSize - 1)] = item;
+        wasEmpty = (t == h);                         // 如果旧 tail 等于 head，说明之前为空
+        return true;
+    }
+
+    bool pop(T& item) {
+        size_t h = head_.load(std::memory_order_relaxed);
+        size_t t = tail_.load(std::memory_order_acquire);
+        if (h == t)
+            return false;                            // 队列空
+
+        item = buffer_[h & (MaxSize - 1)];
+        head_.store(h + 1, std::memory_order_release);
+        return true;
+    }
+
+    size_t size() const {
+        // 注意：此处返回值可能因并发而不精确，但用于判断空/满足够安全
+        return tail_.load(std::memory_order_acquire) - head_.load(std::memory_order_acquire);
+    }
+
+    bool empty() const {
+        return size() == 0;
+    }
+
+    // 清空所有现有事件（返回清空的元素个数）
+    size_t drain() {
+        size_t cleared = 0;
+        T dummy;
+        size_t currentTail = tail_.load(std::memory_order_acquire);
+        size_t h = head_.load(std::memory_order_relaxed);
+        while (h < currentTail) {
+            if (pop(dummy))
+                ++cleared;
+            h = head_.load(std::memory_order_relaxed);
+        }
+        return cleared;
+    }
+};
+
+// ─────────────────────────────────────────────
+//  InputSystem（优化版）
+// ─────────────────────────────────────────────
+class InputSystem {
+private:
+    // 环形缓冲区（容量 1024，2 的幂）
+    static constexpr size_t QUEUE_CAPACITY = 1024;
+    RingBuffer<KeyEvent, QUEUE_CAPACITY> ringBuffer_;
+
+    // 用于条件变量等待的互斥锁（仅用于 wait/notify）
+    std::mutex              queueMutex_;
+    std::condition_variable queueCond_;
+
+    std::unique_ptr<std::thread> workerThread_;
+    std::atomic<bool> running_{ false };
+    std::atomic<bool> processing_{ true };
+
+    std::atomic<int>  processedCount_{ 0 };
+    std::atomic<size_t> approxQueueSize_{ 0 };   // 近似的队列大小，用于外部查询
+
+    // 当前输入模式及有效模式缓存
+    std::atomic<int> requestedMode_{ (int)InputMode::Auto };
+    std::atomic<InputMode> effectiveMode_{ InputMode::SendInput };   // 解析后的实际模式
+
+    // 按下的键集合
+    std::set<BYTE> pressedKeys_;
+    mutable std::mutex     pressedKeysMutex_;
+
+    HMODULE hWin32u_ = nullptr;
+
+    // ─────────────────────────────────────────
+    InputSystem() {
+        buildScanCache();
+        buildExtTable();
+        loadNtFunctions();
+        // 初始化有效模式
+        effectiveMode_.store(resolveMode(), std::memory_order_relaxed);
+    }
+
+    ~InputSystem() {
+        shutdown();
+        if (hWin32u_) FreeLibrary(hWin32u_);
+    }
+
+    InputSystem(const InputSystem&) = delete;
+    InputSystem& operator=(const InputSystem&) = delete;
+
+    // ── 加载底层函数 ──────────────────────────
+    bool loadNtFunctions() {
+        hWin32u_ = LoadLibraryA("win32u.dll");
+        if (!hWin32u_) return false;
+
+        pNtUserInjectKeyboardInput = reinterpret_cast<NtUserInjectKeyboardInput_t>(
+            GetProcAddress(hWin32u_, "NtUserInjectKeyboardInput"));
+
+        pNtUserSendInput = reinterpret_cast<NtUserSendInput_t>(
+            GetProcAddress(hWin32u_, "NtUserSendInput"));
+
+        return (pNtUserInjectKeyboardInput != nullptr || pNtUserSendInput != nullptr);
+    }
+
+    // ── 解析 Auto 模式下的实际模式 ────────────
+    InputMode resolveMode() const {
+        int m = requestedMode_.load(std::memory_order_relaxed);
+        if (m == (int)InputMode::Auto) {
+            if (pNtUserInjectKeyboardInput) return InputMode::NtUserInjectKeyboard;
+            if (pNtUserSendInput)           return InputMode::NtUserSendInput;
+            return InputMode::SendInput;
+        }
+        if (m == (int)InputMode::NtUserInjectKeyboard && !pNtUserInjectKeyboardInput) {
+            if (pNtUserSendInput) return InputMode::NtUserSendInput;
+            return InputMode::SendInput;
+        }
+        if (m == (int)InputMode::NtUserSendInput && !pNtUserSendInput)
+            return InputMode::SendInput;
+
+        return static_cast<InputMode>(m);
+    }
+
+    // ── 按键状态追踪 ──────────────────────────
+    void updateKeyState(BYTE keyCode, BOOL isDown) {
+        std::lock_guard<std::mutex> lock(pressedKeysMutex_);
+        if (isDown) pressedKeys_.insert(keyCode);
+        else        pressedKeys_.erase(keyCode);
+    }
+
+    void releaseAllPressedKeys() {
+        std::set<BYTE> keys;
+        {
+            std::lock_guard<std::mutex> lock(pressedKeysMutex_);
+            keys = pressedKeys_;
+            pressedKeys_.clear();
+        }
+        for (BYTE k : keys) {
+            sendKeyCore(k, FALSE);
+            Sleep(5);
+        }
+    }
+
+    // ── 核心发送（使用有效模式缓存）─────────────
+    void sendKeyCore(BYTE keyCode, BOOL isDown) {
+        WORD scan = g_scanCache[keyCode];
+        DWORD flags = isDown ? 0 : KEYEVENTF_KEYUP;
+        if (g_extTable[keyCode]) flags |= KEYEVENTF_EXTENDEDKEY;
+
+        KEYBDINPUT ki = {};
+        ki.wVk = keyCode;
+        ki.wScan = scan;
+        ki.dwFlags = flags;
+
+        InputMode mode = effectiveMode_.load(std::memory_order_relaxed);
+
+        switch (mode) {
+        case InputMode::NtUserInjectKeyboard:
+            pNtUserInjectKeyboardInput(&ki, 1);
+            break;
+
+        case InputMode::NtUserSendInput: {
+            INPUT inp = {};
+            inp.type = INPUT_KEYBOARD;
+            inp.ki = ki;
+            pNtUserSendInput(1, &inp, sizeof(INPUT));
+            break;
+        }
+
+        case InputMode::SendInput:
+        default: {
+            INPUT inp = {};
+            inp.type = INPUT_KEYBOARD;
+            inp.ki = ki;
+            ::SendInput(1, &inp, sizeof(INPUT));
+            break;
+        }
+        }
+    }
+
+    // ── 工作线程（批量处理零延迟事件）──────────
+    void workerProc() {
+        while (running_) {
+            // 1. 检查是否暂停处理
+            if (!processing_.load(std::memory_order_relaxed)) {
+                std::unique_lock<std::mutex> lock(queueMutex_);
+                queueCond_.wait(lock, [this] {
+                    return processing_.load(std::memory_order_relaxed) || !running_;
+                    });
+                if (!running_) break;
+                continue;
+            }
+
+            // 2. 取一个事件
+            KeyEvent evt;
+            if (!ringBuffer_.pop(evt)) {
+                // 队列空，等待
+                std::unique_lock<std::mutex> lock(queueMutex_);
+                queueCond_.wait(lock, [this] {
+                    return !ringBuffer_.empty() || !running_;
+                    });
+                continue;
+            }
+
+            // 3. 处理事件
+            if (evt.delayMs > 0) {
+                // 有延迟：单次处理
+                sendKeyCore(evt.keyCode, evt.isDown);
+                updateKeyState(evt.keyCode, evt.isDown);
+                ++processedCount_;
+                std::this_thread::sleep_for(std::chrono::milliseconds(evt.delayMs));
+            }
+            else {
+                // 零延迟：批量收集后续零延迟事件
+                const size_t BATCH_MAX = 64;
+                std::array<KeyEvent, BATCH_MAX> batch;
+                size_t batchCount = 0;
+                batch[batchCount++] = evt;
+
+                while (batchCount < BATCH_MAX) {
+                    KeyEvent next;
+                    if (!ringBuffer_.pop(next) || next.delayMs > 0) {
+                        // 队列空或遇到延迟事件，停止收集
+                        if (next.delayMs > 0) {
+                            // 将延迟事件重新放回？不能直接放回，这里简单处理：停止收集，延迟事件留在队列中留给下次循环
+                            // 由于我们已经pop了next，需要把它放回队列？但无锁队列不支持回退。
+                            // 更好的做法：如果next.delayMs>0，则停止收集，并将next重新入队？但重新入队可能乱序。
+                            // 简化：遇到延迟事件就停止，本次不处理该延迟事件，让它留在队列中？但我们已pop它，无法留回。
+                            // 因此，我们必须在pop前检查，但无法在不pop的情况下查看。所以只能pop出来再判断。
+                            // 如果next.delayMs>0，我们把它单独处理，不加入batch。
+                            // 这样可以保持顺序。
+                            sendKeyCore(next.keyCode, next.isDown);
+                            updateKeyState(next.keyCode, next.isDown);
+                            ++processedCount_;
+                        }
+                        break;
+                    }
+                    batch[batchCount++] = next;
+                }
+
+                // 批量发送零延迟事件
+                for (size_t i = 0; i < batchCount; ++i) {
+                    sendKeyCore(batch[i].keyCode, batch[i].isDown);
+                }
+
+                // 一次性更新按键状态（减少锁竞争）
+                {
+                    std::lock_guard<std::mutex> lock(pressedKeysMutex_);
+                    for (size_t i = 0; i < batchCount; ++i) {
+                        const auto& e = batch[i];
+                        if (e.isDown) pressedKeys_.insert(e.keyCode);
+                        else          pressedKeys_.erase(e.keyCode);
+                    }
+                }
+
+                processedCount_ += static_cast<int>(batchCount);
+            }
+
+            // 更新近似队列大小（用于外部查询）
+            approxQueueSize_.store(ringBuffer_.size(), std::memory_order_relaxed);
+        }
+    }
+
+public:
+    static InputSystem& getInstance() {
+        static InputSystem instance;
+        return instance;
+    }
+
+    // ── 模式控制 ──────────────────────────────
+    int setInputMode(int mode) {
+        if (mode < (int)InputMode::Auto || mode >(int)InputMode::SendInput)
+            return -1;
+
+        requestedMode_.store(mode, std::memory_order_relaxed);
+        InputMode effective = resolveMode();
+        effectiveMode_.store(effective, std::memory_order_relaxed);
+        return (int)effective;
+    }
+
+    int getInputMode() const {
+        return (int)effectiveMode_.load(std::memory_order_relaxed);
+    }
+
+    int getAvailableModes() const {
+        int mask = (1 << (int)InputMode::Auto) | (1 << (int)InputMode::SendInput);
+        if (pNtUserInjectKeyboardInput) mask |= (1 << (int)InputMode::NtUserInjectKeyboard);
+        if (pNtUserSendInput)           mask |= (1 << (int)InputMode::NtUserSendInput);
+        return mask;
+    }
+
+    // ── 初始化 ────────────────────────────────
+    int initialize(int /*maxSize*/) {
+        if (running_) return 0;   // 已运行
+
+        running_ = true;
+        processing_ = true;
+        processedCount_ = 0;
+        approxQueueSize_ = 0;
+        {
+            std::lock_guard<std::mutex> lock(pressedKeysMutex_);
+            pressedKeys_.clear();
+        }
+
+        workerThread_ = std::make_unique<std::thread>(&InputSystem::workerProc, this);
+        return 0;
+    }
+
+    // ── 入队按键事件 ──────────────────────────
+    int pushKeyEvent(BYTE keyCode, BOOL isDown, DWORD delayMs) {
+        if (!running_) return -1;
+
+        bool wasEmpty = false;
+        if (!ringBuffer_.push(KeyEvent(keyCode, isDown, delayMs), wasEmpty))
+            return -2;   // 队列满
+
+        approxQueueSize_.store(ringBuffer_.size(), std::memory_order_relaxed);
+
+        if (wasEmpty) {
+            // 队列由空变为非空，唤醒可能等待的工作线程
+            std::lock_guard<std::mutex> lock(queueMutex_);
+            queueCond_.notify_one();
+        }
+        return 0;
+    }
+
+    // ── 直接发送（绕过队列）────────────────────
+    int sendKeyDirect(BYTE keyCode, BOOL isDown) {
+        if (!running_) return -1;
+        sendKeyCore(keyCode, isDown);
+        updateKeyState(keyCode, isDown);
+        return 0;
+    }
+
+    int sendKeyCombination(const std::vector<BYTE>& keys, DWORD delayMs = 50) {
+        if (!running_ || keys.empty()) return -1;
+        for (BYTE k : keys) { sendKeyCore(k, TRUE);  updateKeyState(k, TRUE);  Sleep(delayMs); }
+        for (auto it = keys.rbegin(); it != keys.rend(); ++it) {
+            sendKeyCore(*it, FALSE); updateKeyState(*it, FALSE); Sleep(delayMs);
+        }
+        return 0;
+    }
+
+    int sendText(const char* text) {
+        if (!running_ || !text) return -1;
+        while (*text) {
+            char c = *text++;
+            SHORT vk = VkKeyScanA(c);
+            if (vk == -1) continue;
+
+            BYTE keyCode = LOBYTE(vk);
+            BYTE shiftState = HIBYTE(vk);
+
+            if (shiftState & 1) { sendKeyCore(VK_SHIFT, TRUE);  updateKeyState(VK_SHIFT, TRUE); }
+            sendKeyCore(keyCode, TRUE);
+            sendKeyCore(keyCode, FALSE);
+            updateKeyState(keyCode, TRUE);
+            updateKeyState(keyCode, FALSE);
+            if (shiftState & 1) { sendKeyCore(VK_SHIFT, FALSE); updateKeyState(VK_SHIFT, FALSE); }
+            Sleep(10);
+        }
+        return 0;
+    }
+
+    int startProcessing() {
+        processing_.store(true, std::memory_order_relaxed);
+        std::lock_guard<std::mutex> lock(queueMutex_);
+        queueCond_.notify_one();
+        return 0;
+    }
+
+    int stopProcessing() {
+        processing_.store(false, std::memory_order_relaxed);
+        return 0;
+    }
+
+    void clearQueue() {
+        // 暂停处理
+        processing_.store(false, std::memory_order_relaxed);
+        // 等待一下让工作线程暂停（可选）
+        std::this_thread::sleep_for(std::chrono::milliseconds(1));
+
+        // 清空现有事件（只清空已入队的，新事件保留）
+        size_t drained = ringBuffer_.drain();
+        approxQueueSize_.store(ringBuffer_.size(), std::memory_order_relaxed);
+
+        // 释放所有按下的键
+        releaseAllPressedKeys();
+
+        // 恢复处理
+        processing_.store(true, std::memory_order_relaxed);
+        std::lock_guard<std::mutex> lock(queueMutex_);
+        queueCond_.notify_one();
+    }
+
+    int getStatus(int* outQueueSize, int* outProcessedCount) {
+        if (outQueueSize)      *outQueueSize = static_cast<int>(approxQueueSize_.load(std::memory_order_relaxed));
+        if (outProcessedCount) *outProcessedCount = processedCount_.load(std::memory_order_relaxed);
+        return 0;
+    }
+
+    void shutdown() {
+        running_ = false;
+        {
+            std::lock_guard<std::mutex> lock(queueMutex_);
+            queueCond_.notify_all();
+        }
+        if (workerThread_ && workerThread_->joinable()) {
+            workerThread_->join();
+            workerThread_.reset();
+        }
+        releaseAllPressedKeys();
+    }
+
+    void emergencyStop() {
+        // 快速清空所有事件（包括新事件）
+        KeyEvent dummy;
+        while (ringBuffer_.pop(dummy)) {}
+        approxQueueSize_.store(0, std::memory_order_relaxed);
+        releaseAllPressedKeys();
+    }
+
+    bool isUsingNtFunctions() const {
+        return pNtUserInjectKeyboardInput != nullptr || pNtUserSendInput != nullptr;
+    }
+
+    int getPressedKeysCount() const {
+        std::lock_guard<std::mutex> lock(pressedKeysMutex_);
+        return static_cast<int>(pressedKeys_.size());
+    }
+};
+
+// ─────────────────────────────────────────────
+//  DLL 入口
+// ─────────────────────────────────────────────
+BOOL APIENTRY DllMain(HMODULE hModule, DWORD reason, LPVOID) {
+    switch (reason) {
+    case DLL_PROCESS_ATTACH: DisableThreadLibraryCalls(hModule); break;
+    case DLL_PROCESS_DETACH: InputSystem::getInstance().shutdown(); break;
+    }
+    return TRUE;
+}
+
+// ─────────────────────────────────────────────
+//  导出函数（接口完全不变）
+// ─────────────────────────────────────────────
+extern "C" {
+    INPUT_API int  __stdcall Initialize(int maxQueueSize) { return InputSystem::getInstance().initialize(maxQueueSize); }
+    INPUT_API int  __stdcall PushKeyEvent(BYTE keyCode, BOOL isDown, DWORD delayMs) { return InputSystem::getInstance().pushKeyEvent(keyCode, isDown, delayMs); }
+    INPUT_API int  __stdcall SendKeyDirect(BYTE keyCode, BOOL isDown) { return InputSystem::getInstance().sendKeyDirect(keyCode, isDown); }
+    INPUT_API int  __stdcall SendKeyCombination(BYTE* keys, int keyCount, DWORD delayMs) {
+        if (!keys || keyCount <= 0) return -1;
+        return InputSystem::getInstance().sendKeyCombination(std::vector<BYTE>(keys, keys + keyCount), delayMs);
+    }
+    INPUT_API int  __stdcall SendText(const char* text) { return InputSystem::getInstance().sendText(text); }
+    INPUT_API int  __stdcall StartProcessing() { return InputSystem::getInstance().startProcessing(); }
+    INPUT_API int  __stdcall StopProcessing() { return InputSystem::getInstance().stopProcessing(); }
+    INPUT_API void __stdcall ClearQueue() { InputSystem::getInstance().clearQueue(); }
+    INPUT_API int  __stdcall GetInputQueueStatus(int* queueSize, int* processedCount) { return InputSystem::getInstance().getStatus(queueSize, processedCount); }
+    INPUT_API void __stdcall Shutdown() { InputSystem::getInstance().shutdown(); }
+    INPUT_API void __stdcall EmergencyStop() { InputSystem::getInstance().emergencyStop(); }
+    INPUT_API BOOL __stdcall IsUsingNtFunctions() { return InputSystem::getInstance().isUsingNtFunctions() ? TRUE : FALSE; }
+    INPUT_API int  __stdcall GetPressedKeysCount() { return InputSystem::getInstance().getPressedKeysCount(); }
+
+    // 模式控制
+    INPUT_API int  __stdcall SetInputMode(int mode) { return InputSystem::getInstance().setInputMode(mode); }
+    INPUT_API int  __stdcall GetInputMode() { return InputSystem::getInstance().getInputMode(); }
+    INPUT_API int  __stdcall GetAvailableModes() { return InputSystem::getInstance().getAvailableModes(); }
+}
