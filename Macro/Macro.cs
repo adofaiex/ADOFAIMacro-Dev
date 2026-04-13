@@ -48,7 +48,7 @@ namespace ADOFAIMacro.Macro
         private static bool initialized = false;
         private static string lastKeysSetting = "";
         // Immutable snapshot - updated atomically, read without lock
-        private static volatile byte[] _keyCodesSnapshot = Array.Empty<byte>();
+        private static volatile byte[] _keyCodesSnapshot = [];
         private static volatile int _keyCodesVersion = 0;
 
         // ─────────────────────────────────────────────
@@ -65,10 +65,10 @@ namespace ADOFAIMacro.Macro
         private static int _hitEventPoolUsed;
 
         // 复用缓冲区
-        private static readonly List<double> _evTimeRecycle = new(4096);
-        private static readonly List<int> _evPressRecycle = new(4096);
-        private static readonly List<int> _evFloorRecycle = new(4096);
-        private static readonly List<PieceInfo> _piecesRecycle = new(1024);
+        private static readonly List<double> _evTimeRecycle = [with(4096)];
+        private static readonly List<int> _evPressRecycle = [with(4096)];
+        private static readonly List<int> _evFloorRecycle = [with(4096)];
+        private static readonly List<PieceInfo> _piecesRecycle = [with(1024)];
 
         // ─────────────────────────────────────────────
         //  时间锚点（双缓冲）
