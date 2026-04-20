@@ -191,7 +191,7 @@ void SetTechniqueConfig(TechniqueConfig* config)
 // ─────────────────────────────────────────────
 //  导出函数：BuildTechniqueHitEvents
 // ─────────────────────────────────────────────
-static HitEvent* BuildTechniqueHitEvents(
+HitEvent* BuildTechniqueHitEvents(
     double* entryTimes,
     int* pressTypes,
     int* floorIndices,
