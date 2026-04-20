@@ -1,4 +1,5 @@
 ﻿using ADOFAIMacro.Macro;
+using ADOFAIMacro.Localization;
 using HarmonyLib;
 using Newgrounds;
 using System;
@@ -106,11 +107,28 @@ namespace ADOFAIMacro
         // ─────────────────────────────────────────────
         public event Action<bool> OnMacroChanged;
 
-        private bool _useChinese = true;
+        // 语言设置 - 现在由 LocalizationManager 管理
+        private bool _useChinese;
         public bool UseChinese
         {
             get => _useChinese;
-            set { if (_useChinese == value) return; _useChinese = value; }
+            set
+            {
+                if (_useChinese == value) return;
+                _useChinese = value;
+                UnityEngine.Debug.Log($"[Settings] UseChinese changed to: {value}, loading language...");
+                if (value)
+                {
+                    bool success = ADOFAIMacro.Localization.LocalizationManager.LoadLanguage("zh-CN");
+                    UnityEngine.Debug.Log($"[Settings] LoadLanguage('zh-CN') returned: {success}");
+                }
+                else
+                {
+                    bool success = ADOFAIMacro.Localization.LocalizationManager.LoadLanguage("en-US");
+                    UnityEngine.Debug.Log($"[Settings] LoadLanguage('en-US') returned: {success}");
+                }
+                UnityEngine.Debug.Log($"[Settings] Current language after switch: {ADOFAIMacro.Localization.LocalizationManager.CurrentLanguage}, IsChinese: {ADOFAIMacro.Localization.LocalizationManager.IsChinese}");
+            }
         }
 
         private bool _macro;
@@ -414,25 +432,25 @@ namespace ADOFAIMacro
             UIUtils.InitializeStyles();
 
             var cards = new List<(string name, Action draw)>();
-            cards.Add((UseChinese ? "语言" : "Language", DrawLanguageCard));
-            cards.Add((UseChinese ? "宏" : "Macro", DrawMainSwitchCard));
+            cards.Add((Localization.LocalizationManager.Get("tab.language"), DrawLanguageCard));
+            cards.Add((Localization.LocalizationManager.Get("tab.macro"), DrawMainSwitchCard));
 
             if (Macro)
             {
-                cards.Add((UseChinese ? "按键设置" : "Key Settings", DrawKeySettingsCard));
-                cards.Add((UseChinese ? "按键过滤" : "Key Filter", DrawKeyFilterCard));
-                cards.Add((UseChinese ? "延迟设置" : "Offset Settings", DrawOffsetSettingsCard));
-                cards.Add((UseChinese ? "其他选项" : "Other Settings", DrawOtherSettingsCard));
+                cards.Add((Localization.LocalizationManager.Get("tab.key_settings"), DrawKeySettingsCard));
+                cards.Add((Localization.LocalizationManager.Get("tab.key_filter"), DrawKeyFilterCard));
+                cards.Add((Localization.LocalizationManager.Get("tab.offset_settings"), DrawOffsetSettingsCard));
+                cards.Add((Localization.LocalizationManager.Get("tab.other_settings"), DrawOtherSettingsCard));
 
                 if (SimulateKeyPress)
-                    cards.Add((UseChinese ? "手法模拟" : "Technique Simulation", DrawTechniqueSimCard));
+                    cards.Add((Localization.LocalizationManager.Get("tab.technique_simulation"), DrawTechniqueSimCard));
             }
 
-            cards.Add((UseChinese ? "更新日志" : "Update Log", DrawUpdateLogCard));
-            cards.Add((UseChinese ? "作者" : "Author", DrawAuthorCard));
+            cards.Add((Localization.LocalizationManager.Get("tab.update_log"), DrawUpdateLogCard));
+            cards.Add((Localization.LocalizationManager.Get("tab.author"), DrawAuthorCard));
 
             if (IsBeta)
-                cards.Add((UseChinese ? "测试版" : "Beta", DrawBetaCard));
+                cards.Add((Localization.LocalizationManager.Get("tab.beta"), DrawBetaCard));
 
             if (selectedCardIndex >= cards.Count) selectedCardIndex = 0;
 
@@ -449,14 +467,19 @@ namespace ADOFAIMacro
         private void DrawLanguageCard()
         {
             GUILayout.BeginVertical(UIUtils.CardStyle);
-            GUILayout.Label(UseChinese ? "语言" : "Language", UIUtils.HeaderStyle);
+            GUILayout.Label(Localization.LocalizationManager.Get("tab.language"), UIUtils.HeaderStyle);
             GUILayout.Space(2);
             GUILayout.BeginHorizontal();
-            GUILayout.Label(UseChinese ? "显示语言" : "Display Language", UIUtils.LabelStyle, GUILayout.Width(150));
-            string[] langs = ["中文", "English"];
-            int sel = UseChinese ? 0 : 1;
+            GUILayout.Label(Localization.LocalizationManager.Get("language.display_language"), UIUtils.LabelStyle, GUILayout.Width(150));
+            string[] langs = [Localization.LocalizationManager.Get("language.chinese"), Localization.LocalizationManager.Get("language.english")];
+            int sel = Localization.LocalizationManager.IsChinese ? 0 : 1;
             int newSel = UIUtils.M3SelectionGrid(sel, langs, 2, GUILayout.Width(200));
-            if (newSel != sel) UseChinese = newSel == 0;
+            UnityEngine.Debug.Log($"[DrawLanguageCard] IsChinese={Localization.LocalizationManager.IsChinese}, sel={sel}, newSel={newSel}");
+            if (newSel != sel)
+            {
+                UnityEngine.Debug.Log($"[DrawLanguageCard] Switching: UseChinese = {newSel == 0}");
+                UseChinese = newSel == 0;
+            }
             GUILayout.EndHorizontal();
             GUILayout.EndVertical();
         }
@@ -467,8 +490,8 @@ namespace ADOFAIMacro
         private void DrawMainSwitchCard()
         {
             GUILayout.BeginVertical(UIUtils.CardStyle);
-            GUILayout.Label(UseChinese ? "宏" : "Macro", UIUtils.HeaderStyle);
-            bool newMacro = UIUtils.M3Switch(Macro, UseChinese ? "启用宏" : "Enable Macro");
+            GUILayout.Label(Localization.LocalizationManager.Get("tab.macro"), UIUtils.HeaderStyle);
+            bool newMacro = UIUtils.M3Switch(Macro, Localization.LocalizationManager.Get("macro.enable_macro"));
             if (newMacro != Macro) { Macro = newMacro; ADOBase.controller.Restart(); }
             GUILayout.EndVertical();
         }
@@ -479,34 +502,34 @@ namespace ADOFAIMacro
         private void DrawOffsetSettingsCard()
         {
             GUILayout.BeginVertical(UIUtils.CardStyle);
-            GUILayout.Label(UseChinese ? "延迟设置" : "Offset Settings", UIUtils.HeaderStyle);
+            GUILayout.Label(Localization.LocalizationManager.Get("tab.offset_settings"), UIUtils.HeaderStyle);
             GUILayout.Space(2);
 
             EnableKeyAdjust = UIUtils.M3Switch(EnableKeyAdjust,
-                UseChinese ? "允许Ctrl+左右键调整步长偏移(游戏中)" : "Allow adjusting step offset using Ctrl and arrow keys (in-game)");
+                Localization.LocalizationManager.Get("offset.allow_ctrl_adjust"));
             GUILayout.Space(2);
             GUILayout.BeginHorizontal();
             AdjustStep = UIUtils.M3HorizontalSliderWithLabelAndInput(
-                UseChinese ? "调整步长" : "Adjust Step", AdjustStep, 0.1f, 10f,
+                Localization.LocalizationManager.Get("offset.adjust_step"), AdjustStep, 0.1f, 10f,
                 ref _adjustStepState.input, ref _adjustStepState.focused, "F2", 120, 240, 60);
             GUILayout.EndHorizontal();
 
             GUILayout.Space(2);
             GUILayout.BeginHorizontal();
             TimeOffset = UIUtils.M3HorizontalSliderWithLabelAndInput(
-                UseChinese ? "延迟 (ms)" : "Offset (ms)", TimeOffset, -100f, 100f,
+                Localization.LocalizationManager.Get("offset.offset_ms"), TimeOffset, -100f, 100f,
                 ref _timeOffsetState.input, ref _timeOffsetState.focused, "F2", 120, 240, 60);
             GUILayout.EndHorizontal();
 
             GUILayout.Space(2);
             EnableArrowTimeAdjust = UIUtils.M3Switch(EnableArrowTimeAdjust,
-                UseChinese ? "允许左右键调整延迟(游戏中)" : "Allow adjustment of delay using left and right keys (in-game)");
+                Localization.LocalizationManager.Get("offset.allow_arrow_adjust"));
             GUILayout.Space(2);
             HighPrecisionTime = UIUtils.M3Switch(HighPrecisionTime,
-                UseChinese ? "启用高精度时间（提高同步精度）" : "Enable High Precision Time (improves sync accuracy)");
+                Localization.LocalizationManager.Get("offset.enable_high_precision"));
             GUILayout.Space(2);
             HighPrecisionAsync = UIUtils.M3Switch(HighPrecisionAsync,
-                UseChinese ? "[实验性]启用高精度异步" : "[Experimental]Enable High Precision Async");
+                Localization.LocalizationManager.Get("offset.enable_high_precision_async"));
             GUILayout.EndVertical();
         }
 
@@ -516,27 +539,27 @@ namespace ADOFAIMacro
         private void DrawKeySettingsCard()
         {
             GUILayout.BeginVertical(UIUtils.CardStyle);
-            GUILayout.Label(UseChinese ? "按键设置" : "Key Settings", UIUtils.HeaderStyle);
+            GUILayout.Label(Localization.LocalizationManager.Get("tab.key_settings"), UIUtils.HeaderStyle);
             GUILayout.Space(2);
 
             if (!Main.Settings.EnableTechniqueSimulation)
             {
                 GUILayout.BeginHorizontal();
-                GUILayout.Label(UseChinese ? "按键序列 (逗号分隔)" : "Keys (comma separated)",
+                GUILayout.Label(Localization.LocalizationManager.Get("key_settings.keys_comma_separated"),
                     UIUtils.LabelStyle, GUILayout.Width(180));
                 MacroKeys = GUILayout.TextField(MacroKeys, UIUtils.TextFieldStyle, GUILayout.ExpandWidth(true));
                 GUILayout.EndHorizontal();
             }
 
             GUILayout.Space(2);
-            bool newSim = UIUtils.M3Switch(SimulateKeyPress, UseChinese ? "按键模拟" : "Key simulation");
+            bool newSim = UIUtils.M3Switch(SimulateKeyPress, Localization.LocalizationManager.Get("key_settings.key_simulation"));
             if (newSim != SimulateKeyPress) { SimulateKeyPress = newSim; ADOBase.controller.Restart(); }
 
             if (SimulateKeyPress)
             {
                 GUILayout.Space(2);
                 SkyHookMode = UIUtils.M3Switch(SkyHookMode,
-                    UseChinese ? "使用高级输入(否则使用SendInput API)" : "Use advanced input (if closed, use SendInput API)");
+                    Localization.LocalizationManager.Get("key_settings.use_advanced_input"));
 
                 if (SkyHookMode)
                 {
@@ -548,7 +571,7 @@ namespace ADOFAIMacro
                     GUILayout.Space(4);
 
                     GUILayout.BeginHorizontal();
-                    GUILayout.Label(UseChinese ? "Win API 输入模式" : "Win API Input Mode",
+                    GUILayout.Label(Localization.LocalizationManager.Get("key_settings.win_api_input_mode"),
                         UIUtils.LabelStyle, GUILayout.Width(150));
                     if (InputSystem.IsInitialized)
                     {
@@ -556,9 +579,10 @@ namespace ADOFAIMacro
                         GUIStyle hintStyle = new(UIUtils.LabelStyle);
                         hintStyle.normal.textColor = new Color(0.5f, 0.9f, 0.5f, 0.8f);
                         hintStyle.fontSize = 10;
-                        GUILayout.Label(UseChinese
-                            ? $"[实际: {GetModeLabel(actual, true)}]"
-                            : $"[Active: {GetModeLabel(actual, false)}]", hintStyle);
+                        string actualLabel = GetModeLabel(actual);
+                        GUILayout.Label(string.Format(
+                            Localization.LocalizationManager.Get("key_settings.mode_indicator"),
+                            actualLabel), hintStyle);
                     }
                     GUILayout.EndHorizontal();
                     GUILayout.Space(4);
@@ -568,15 +592,21 @@ namespace ADOFAIMacro
                     bool hasNtSend = !ADOFAIMacro.Macro.InputSystem.IsInitialized ||
                                      ADOFAIMacro.Macro.InputSystem.IsModeAvailable(ADOFAIMacro.Macro.InputMode.NtUserSendInput);
 
-                    string[] modeLabels = UseChinese
-                        ? ["自动", "NtInject", "NtSendInput ★", "SendInput"]
-                        : ["Auto", "NtInject", "NtSendInput ★", "SendInput"];
-
                     GUILayout.BeginHorizontal();
                     for (int i = 0; i < 4; i++)
                     {
                         bool available = i switch { 1 => hasInject, 2 => hasNtSend, _ => true };
-                        string lbl = modeLabels[i] + (available ? "" : (UseChinese ? "(不支持)" : "(N/A)"));
+                        string modeKey = i switch
+                        {
+                            0 => "key_mode.auto",
+                            1 => "key_mode.ntinject",
+                            2 => "key_mode.ntsendinput",
+                            3 => "key_mode.sendinput",
+                            _ => ""
+                        };
+                        string lbl = Localization.LocalizationManager.Get(modeKey);
+                        if (!available)
+                            lbl += Localization.LocalizationManager.Get("key_mode_not_supported");
                         if (GUILayout.Button(lbl, UIUtils.ButtonStyle, GUILayout.Height(24)) && available && InputMode != i)
                             InputMode = i;
                     }
@@ -587,25 +617,26 @@ namespace ADOFAIMacro
                     descStyle.normal.textColor = new Color(0.75f, 0.75f, 0.75f, 0.8f);
                     descStyle.fontSize = 10;
                     descStyle.wordWrap = true;
-                    GUILayout.Label(InputMode switch
+                    string descKey = InputMode switch
                     {
-                        0 => UseChinese ? "自动：优先使用最底层可用方式" : "Auto: use the lowest available layer automatically",
-                        1 => UseChinese ? "NtInject（最底层）：直接注入原始输入流" : "NtInject (deepest): inject into raw input stream",
-                        2 => UseChinese ? "NtSendInput ★：内核边界注入" : "NtSendInput ★: kernel-boundary injection",
-                        3 => UseChinese ? "SendInput：标准 Win32 API，兼容性最佳" : "SendInput: standard Win32 API, best compatibility",
+                        0 => "key_mode_desc.auto",
+                        1 => "key_mode_desc.ntinject",
+                        2 => "key_mode_desc.ntsendinput",
+                        3 => "key_mode_desc.sendinput",
                         _ => ""
-                    }, descStyle);
+                    };
+                    GUILayout.Label(Localization.LocalizationManager.Get(descKey), descStyle);
                 }
             }
             GUILayout.EndVertical();
         }
 
-        private string GetModeLabel(Macro.InputMode mode, bool chinese) => mode switch
+        private string GetModeLabel(Macro.InputMode mode) => mode switch
         {
-            ADOFAIMacro.Macro.InputMode.Auto => chinese ? "自动" : "Auto",
-            ADOFAIMacro.Macro.InputMode.NtUserInjectKeyboard => chinese ? "NtInject" : "NtInject",
-            ADOFAIMacro.Macro.InputMode.NtUserSendInput => chinese ? "NtSendInput ★" : "NtSendInput ★",
-            ADOFAIMacro.Macro.InputMode.SendInput => chinese ? "SendInput" : "SendInput",
+            ADOFAIMacro.Macro.InputMode.Auto => LocalizationManager.Get("key_mode.auto"),
+            ADOFAIMacro.Macro.InputMode.NtUserInjectKeyboard => LocalizationManager.Get("key_mode.ntinject"),
+            ADOFAIMacro.Macro.InputMode.NtUserSendInput => LocalizationManager.Get("key_mode.ntsendinput"),
+            ADOFAIMacro.Macro.InputMode.SendInput => LocalizationManager.Get("key_mode.sendinput"),
             _ => mode.ToString()
         };
 
@@ -615,10 +646,10 @@ namespace ADOFAIMacro
         private void DrawKeyFilterCard()
         {
             GUILayout.BeginVertical(UIUtils.CardStyle);
-            GUILayout.Label(UseChinese ? "按键过滤" : "Key Filter", UIUtils.HeaderStyle);
+            GUILayout.Label(Localization.LocalizationManager.Get("tab.key_filter"), UIUtils.HeaderStyle);
             GUILayout.Space(2);
 
-            bool newEnable = UIUtils.M3Switch(EnableKeyFilter, UseChinese ? "启用按键过滤" : "Enable Key Filter");
+            bool newEnable = UIUtils.M3Switch(EnableKeyFilter, Localization.LocalizationManager.Get("filter.enable_filter"));
             if (newEnable != EnableKeyFilter) EnableKeyFilter = newEnable;
 
             if (EnableKeyFilter)
@@ -631,8 +662,8 @@ namespace ADOFAIMacro
                 GUILayout.Space(4);
 
                 GUILayout.BeginHorizontal();
-                GUILayout.Label(UseChinese ? "过滤模式" : "Filter Mode", UIUtils.LabelStyle, GUILayout.Width(100));
-                string[] modes = UseChinese ? ["黑名单模式", "白名单模式"] : ["Blacklist Mode", "Whitelist Mode"];
+                GUILayout.Label(Localization.LocalizationManager.Get("filter.filter_mode"), UIUtils.LabelStyle, GUILayout.Width(100));
+                string[] modes = [Localization.LocalizationManager.Get("filter.blacklist_mode"), Localization.LocalizationManager.Get("filter.whitelist_mode")];
                 int newMode = UIUtils.M3SelectionGrid(FilterMode, modes, 2, GUILayout.Width(200));
                 if (newMode != FilterMode) FilterMode = newMode;
                 GUILayout.EndHorizontal();
@@ -642,14 +673,14 @@ namespace ADOFAIMacro
                 descStyle.normal.textColor = new Color(0.7f, 0.7f, 0.7f, 0.8f);
                 descStyle.fontSize = 11;
                 descStyle.wordWrap = true;
-                GUILayout.Label(FilterMode == 0
-                    ? (UseChinese ? "⛔ 黑名单模式：列表中的按键将被阻止" : "⛔ Blacklist: Keys in the list will be blocked")
-                    : (UseChinese ? "✅ 白名单模式：只有列表中的按键允许通过" : "✅ Whitelist: Only keys in the list are allowed"),
-                    descStyle);
+                string desc = FilterMode == 0
+                    ? Localization.LocalizationManager.Get("filter.blacklist_desc")
+                    : Localization.LocalizationManager.Get("filter.whitelist_desc");
+                GUILayout.Label(desc, descStyle);
                 GUILayout.Space(8);
 
                 GUILayout.BeginHorizontal();
-                GUILayout.Label(UseChinese ? "按键列表 (逗号分隔)" : "Keys (comma separated)",
+                GUILayout.Label(Localization.LocalizationManager.Get("filter.keys_comma_separated"),
                     UIUtils.LabelStyle, GUILayout.Width(140));
                 string newFK = UIUtils.M3TextField(FilteredKeys,
                     ref _filteredKeysState.input, ref _filteredKeysState.focused,
@@ -658,7 +689,7 @@ namespace ADOFAIMacro
                 GUILayout.EndHorizontal();
 
                 GUILayout.BeginHorizontal();
-                GUILayout.Label(UseChinese ? "异步按键列表 (逗号分隔)" : "Async Keys (comma separated)",
+                GUILayout.Label(Localization.LocalizationManager.Get("filter.async_keys_comma_separated"),
                     UIUtils.LabelStyle, GUILayout.Width(140));
                 if (SkyHookMode)
                 {
@@ -671,18 +702,18 @@ namespace ADOFAIMacro
                 {
                     GUIStyle dis = new(UIUtils.LabelStyle);
                     dis.normal.textColor = new Color(0.5f, 0.5f, 0.5f, 0.5f);
-                    GUILayout.Label(UseChinese ? "（需开启 SkyHook 模式）" : "(Requires SkyHook Mode)", dis);
+                    GUILayout.Label(Localization.LocalizationManager.Get("filter.requires_skyhook"), dis);
                 }
                 GUILayout.EndHorizontal();
 
                 GUILayout.Space(8);
-                GUILayout.Label(UseChinese ? "常用按键:" : "Common Keys:", UIUtils.LabelStyle);
+                GUILayout.Label(Localization.LocalizationManager.Get("filter.common_keys"), UIUtils.LabelStyle);
                 GUILayout.Space(2);
 
                 void QuickSet(string k) { FilteredKeys = k; if (SkyHookMode) FilteredAsyncKeys = k; }
 
                 GUILayout.BeginHorizontal();
-                if (GUILayout.Button("F1,F2,F3,F4", UIUtils.ButtonStyle, GUILayout.ExpandWidth(true))) QuickSet("F1,F2,F3,F4");
+                if (GUILayout.Button(Localization.LocalizationManager.Get("common.f1") + "," + Localization.LocalizationManager.Get("common.f2") + ",F3,F4", UIUtils.ButtonStyle, GUILayout.ExpandWidth(true))) QuickSet("F1,F2,F3,F4");
                 if (GUILayout.Button("F5,F6,F7,F8", UIUtils.ButtonStyle, GUILayout.ExpandWidth(true))) QuickSet("F5,F6,F7,F8");
                 if (GUILayout.Button("F9,F10,F11,F12", UIUtils.ButtonStyle, GUILayout.ExpandWidth(true))) QuickSet("F9,F10,F11,F12");
                 GUILayout.EndHorizontal();
@@ -704,10 +735,7 @@ namespace ADOFAIMacro
                 tipStyle.normal.textColor = new Color(0.7f, 0.7f, 0.7f, 0.7f);
                 tipStyle.fontSize = 10;
                 tipStyle.wordWrap = true;
-                GUILayout.Label(UseChinese
-                    ? "提示：支持按键名称（A、B、SPACE、ENTER等）和虚拟键码（0x41格式）。多个按键用逗号分隔。"
-                    : "Tip: Supports key names (A, B, SPACE, ENTER, etc.) and virtual key codes (0x41 format). Separate multiple keys with commas.",
-                    tipStyle);
+                GUILayout.Label(Localization.LocalizationManager.Get("filter.tip"), tipStyle);
             }
             GUILayout.EndVertical();
         }
@@ -718,11 +746,11 @@ namespace ADOFAIMacro
         private void DrawOtherSettingsCard()
         {
             GUILayout.BeginVertical(UIUtils.CardStyle);
-            GUILayout.Label(UseChinese ? "其他选项" : "Other Settings", UIUtils.HeaderStyle);
+            GUILayout.Label(Localization.LocalizationManager.Get("tab.other_settings"), UIUtils.HeaderStyle);
             GUILayout.Space(2);
 
             bool newDK = UIUtils.M3Switch(EnableDeathKey,
-                UseChinese ? "死亡后自动按键(仅SkyHook模式)" : "Auto-press key on death(Only SkyHook Mode)");
+                Localization.LocalizationManager.Get("other.enable_death_key"));
             if (newDK != EnableDeathKey) EnableDeathKey = newDK;
 
             if (EnableDeathKey)
@@ -736,14 +764,14 @@ namespace ADOFAIMacro
 
                 GUILayout.BeginHorizontal();
                 DeathKeyDelay = UIUtils.M3HorizontalSliderWithLabelAndInput(
-                    UseChinese ? "延迟秒数" : "Delay (seconds)",
+                    Localization.LocalizationManager.Get("other.delay_seconds"),
                     DeathKeyDelay, 0.1f, 30f,
                     ref _deathKeyDelayState.input, ref _deathKeyDelayState.focused, "F1", 140, 200, 60);
                 GUILayout.EndHorizontal();
                 GUILayout.Space(4);
 
                 GUILayout.BeginHorizontal();
-                GUILayout.Label(UseChinese ? "按键" : "Key", UIUtils.LabelStyle, GUILayout.Width(80));
+                GUILayout.Label(Localization.LocalizationManager.Get("other.key"), UIUtils.LabelStyle, GUILayout.Width(80));
                 string newDKI = GUILayout.TextField(DeathKeyInput, UIUtils.TextFieldStyle, GUILayout.Width(100));
                 if (newDKI != DeathKeyInput) DeathKeyInput = newDKI;
                 GUILayout.Space(10);
@@ -766,20 +794,17 @@ namespace ADOFAIMacro
                 tipStyle.normal.textColor = new Color(0.7f, 0.7f, 0.7f, 0.7f);
                 tipStyle.fontSize = 10;
                 tipStyle.wordWrap = true;
-                GUILayout.Label(UseChinese
-                    ? "提示：可直接输入字母、数字、F1-F12或特殊键名（如SPACE、ENTER），也可输入十六进制代码（如0x52）"
-                    : "Tip: Enter letters, numbers, F1-F12, or special keys (like SPACE, ENTER), or hex code (e.g., 0x52)",
-                    tipStyle);
+                GUILayout.Label(Localization.LocalizationManager.Get("other.tip_enter_key"), tipStyle);
                 GUILayout.Space(4);
             }
 
             ChangeNoFaillInPlay = UIUtils.M3Switch(ChangeNoFaillInPlay,
-                UseChinese ? "游戏中允许切换失败模式" : "The game allows switching to failure mode");
+                Localization.LocalizationManager.Get("other.switch_nofaill"));
             ChangeJudementInPlay = UIUtils.M3Switch(ChangeJudementInPlay,
-                UseChinese ? "游戏中允许切换判定" : "Switching Judement is allowed in the game");
+                Localization.LocalizationManager.Get("other.switch_judgement"));
 
             bool newLock = UIUtils.M3Switch(LockLevelEditor,
-                UseChinese ? "锁定关卡编辑器（防止误操作）" : "Lock Level Editor (prevent misoperation)");
+                Localization.LocalizationManager.Get("other.lock_level_editor"));
             if (LockLevelEditor != newLock)
             {
                 LockLevelEditor = newLock;
@@ -805,7 +830,8 @@ namespace ADOFAIMacro
             string ver = Main.Mod.Info.Version.Replace('\n', ' ').Replace('\r', ' ');
             GUILayout.Label($"📦 {ver}", authorStyle);
             GUILayout.FlexibleSpace();
-            GUILayout.Label($"📧 {(UseChinese ? "hitmargin@qq.com" : "hitmargin@Outlook.com")}", authorStyle);
+            string emailKey = Localization.LocalizationManager.IsChinese ? "author.email_chinese" : "author.email_english";
+            GUILayout.Label($"📧 {Localization.LocalizationManager.Get(emailKey)}", authorStyle);
             GUILayout.EndHorizontal();
 
             GUILayout.Space(4);
@@ -819,9 +845,7 @@ namespace ADOFAIMacro
             thanksStyle.normal.textColor = new Color(0.7f, 0.7f, 0.7f, 0.4f);
             thanksStyle.fontSize = 9;
             thanksStyle.alignment = TextAnchor.MiddleCenter;
-            GUILayout.Label(UseChinese
-                ? $"❤️ 感谢使用 {Main.Mod.Info.Id}"
-                : $"❤️ Thanks for using {Main.Mod.Info.Id}", thanksStyle);
+            GUILayout.Label(string.Format(Localization.LocalizationManager.Get("author.thanks"), Main.Mod.Info.Id), thanksStyle);
             GUILayout.EndVertical();
         }
 
@@ -837,18 +861,14 @@ namespace ADOFAIMacro
             betaStyle.fontStyle = FontStyle.Bold;
             betaStyle.alignment = TextAnchor.MiddleLeft;
             betaStyle.richText = true;
-            GUILayout.Label(UseChinese
-                ? $"⚠️ 测试版本 {BetaVersion} - 功能可能不稳定，请谨慎使用 ⚠️"
-                : $"⚠️ Beta Version {BetaVersion} - Features may be unstable, use with caution ⚠️", betaStyle);
+            GUILayout.Label(string.Format(Localization.LocalizationManager.Get("beta.warning_format"), BetaVersion), betaStyle);
 
             GUIStyle feedbackStyle = new(UIUtils.LabelStyle);
             feedbackStyle.normal.textColor = new Color(0.5f, 0.5f, 0.5f, 0.7f);
             feedbackStyle.fontSize = 10;
             feedbackStyle.alignment = TextAnchor.MiddleRight;
             GUILayout.Space(4);
-            GUILayout.Label(UseChinese
-                ? "如遇问题请通过邮箱反馈，感谢您的测试！"
-                : "Please report issues via email. Thank you for testing!", feedbackStyle);
+            GUILayout.Label(Localization.LocalizationManager.Get("beta.feedback_message"), feedbackStyle);
             GUILayout.EndHorizontal();
         }
 
@@ -859,15 +879,12 @@ namespace ADOFAIMacro
         private void DrawUpdateLogCard()
         {
             GUILayout.BeginVertical(UIUtils.CardStyle);
-            GUILayout.Label(UseChinese ? "更新日志" : "What's New", UIUtils.HeaderStyle);
+            GUILayout.Label(Localization.LocalizationManager.Get("update_log.title"), UIUtils.HeaderStyle);
             GUILayout.Space(4);
             _updateLogScrollPos = GUILayout.BeginScrollView(_updateLogScrollPos, GUILayout.Height(150));
             GUIStyle logStyle = new(UIUtils.LabelStyle) { wordWrap = true, richText = true };
             string ver = Main.Mod.Info.Version.Replace('\n', ' ').Replace('\r', ' ');
-            GUILayout.Label(UseChinese
-                ? $"<b>版本 {ver}</b>\n• 手法模拟优化和修复\n• 分段支持按键覆盖"
-                : $"<b>Version {ver}</b>\n• Technique Simulation Optimization and Repair\n• Per-segment key override support",
-                logStyle);
+            GUILayout.Label(string.Format(Localization.LocalizationManager.Get("update_log.content"), ver), logStyle);
             GUILayout.EndScrollView();
             GUILayout.EndVertical();
         }
@@ -878,11 +895,10 @@ namespace ADOFAIMacro
         private void DrawTechniqueSimCard()
         {
             GUILayout.BeginVertical(UIUtils.CardStyle);
-            GUILayout.Label(UseChinese ? "手法模拟" : "Technique Simulation", UIUtils.HeaderStyle);
+            GUILayout.Label(LocalizationManager.Get("tab.technique_simulation"), UIUtils.HeaderStyle);
             GUILayout.Space(2);
             GUILayout.Label(
-                UseChinese ? "注：最开始进入游戏需要死亡一次来校准时间"
-                           : "Note: The first time you enter the game, you need to die once to calibrate the time.",
+                LocalizationManager.Get("tech.note_first_death"),
                 UIUtils.HeaderStyle);
             GUILayout.Space(2);
 
@@ -894,16 +910,17 @@ namespace ADOFAIMacro
             GUILayout.BeginHorizontal();
             GUIStyle verStyle = new(UIUtils.LabelStyle);
             verStyle.normal.textColor = new Color(0.3f, 0.6f, 1f, 0.8f);
-            GUILayout.Label(UseChinese
-                ? $"🔧 调试模式 - {(dllLoaded ? "DLL可用" : "DLL不可用")}"
-                : $"🔧 Debug Mode - {(dllLoaded ? "DLL Available" : "DLL Unavailable")}", verStyle);
+            string debugStatus = dllLoaded
+                ? LocalizationManager.Get("tech.dll_available")
+                : LocalizationManager.Get("tech.dll_unavailable");
+            GUILayout.Label(string.Format(LocalizationManager.Get("tech.debug_mode"), debugStatus), verStyle);
             GUILayout.EndHorizontal();
 
             if (dllLoaded)
             {
                 GUILayout.BeginHorizontal();
                 GUILayout.Space(20);
-                bool newUseCpp = UIUtils.M3Switch(UseCppTechniqueInDebug, UseChinese ? "使用C++版本" : "Use C++ Version");
+                bool newUseCpp = UIUtils.M3Switch(UseCppTechniqueInDebug, LocalizationManager.Get("tech.use_cpp_version"));
                 if (newUseCpp != UseCppTechniqueInDebug)
                 {
                     UseCppTechniqueInDebug = newUseCpp;
@@ -918,14 +935,14 @@ namespace ADOFAIMacro
                 GUIStyle warnStyle = new(UIUtils.LabelStyle);
                 warnStyle.normal.textColor = new Color(0.8f, 0.5f, 0.5f, 0.8f);
                 warnStyle.fontSize = 10;
-                GUILayout.Label(UseChinese ? "⚠️ DLL不可用，将使用C#版本" : "⚠️ DLL unavailable, using C# version", warnStyle);
+                GUILayout.Label(LocalizationManager.Get("tech.dll_unavailable_notice"), warnStyle);
                 GUILayout.EndHorizontal();
             }
             GUILayout.EndVertical();
 #else
             string dllStatus = dllLoaded
-                ? (UseChinese ? "✅ C++原生DLL已加载" : "✅ C++ Native DLL Loaded")
-                : (UseChinese ? "❌ 检测不到手法模拟库" : "❌ Technique simulation library not found");
+                ? LocalizationManager.Get("tech.dll_available")
+                : LocalizationManager.Get("tech.dll_unavailable");
             if (!dllLoaded) Main.Settings.EnableTechniqueSimulation = false;
             GUIStyle statusStyle = new(UIUtils.LabelStyle);
             statusStyle.normal.textColor = dllLoaded ? new Color(0.3f, 0.8f, 0.3f) : new Color(0.8f, 0.3f, 0.3f);
@@ -939,7 +956,7 @@ namespace ADOFAIMacro
             if (!dllLoaded) GUI.enabled = false;
 #endif
             bool newEnable = UIUtils.M3Switch(EnableTechniqueSimulation,
-                UseChinese ? "启用手法模拟（左右手交替）" : "Enable Technique Simulation (L/R alternation)");
+                LocalizationManager.Get("tech.enable_technique"));
             GUI.enabled = oldEnabled;
 
 #if !DEBUG
@@ -960,9 +977,7 @@ namespace ADOFAIMacro
                     wordWrap = true,
                     normal = { textColor = new Color(0.8f, 0.3f, 0.3f, 0.8f) }
                 };
-                GUILayout.Label(UseChinese
-                    ? "请将 TechniqueSimulator.dll 放在 Mods/BaseMacro/ 目录下"
-                    : "Please place TechniqueSimulator.dll in Mods/BaseMacro/ directory", warnStyle);
+                GUILayout.Label(LocalizationManager.Get("tech.dll_missing_notice"), warnStyle);
                 GUILayout.EndVertical();
                 return;
             }
@@ -984,18 +999,18 @@ namespace ADOFAIMacro
 
             // ── 配置管理 ────────────────────────────────────
             GUILayout.BeginHorizontal();
-            GUILayout.Label(UseChinese ? "配置名称" : "Profile Name", UIUtils.LabelStyle, GUILayout.Width(100));
+            GUILayout.Label(LocalizationManager.Get("tech.profile_name"), UIUtils.LabelStyle, GUILayout.Width(100));
             string newName = GUILayout.TextField(_techniqueProfiles[SelectedTechniqueProfileIndex].name,
                 UIUtils.TextFieldStyle, GUILayout.ExpandWidth(true));
             if (newName != _techniqueProfiles[SelectedTechniqueProfileIndex].name)
                 _techniqueProfiles[SelectedTechniqueProfileIndex].name = newName;
 
-            if (GUILayout.Button(UseChinese ? "新建" : "New", UIUtils.ButtonStyle, GUILayout.Width(60)))
+            if (GUILayout.Button(LocalizationManager.Get("tech.new"), UIUtils.ButtonStyle, GUILayout.Width(60)))
             {
                 _techniqueProfiles.Add(_techniqueProfiles[SelectedTechniqueProfileIndex].Clone());
                 SelectedTechniqueProfileIndex = _techniqueProfiles.Count - 1;
             }
-            if (GUILayout.Button(UseChinese ? "删除" : "Delete", UIUtils.ButtonStyle, GUILayout.Width(60)))
+            if (GUILayout.Button(LocalizationManager.Get("tech.delete"), UIUtils.ButtonStyle, GUILayout.Width(60)))
             {
                 if (_techniqueProfiles.Count > 1)
                 {
@@ -1007,7 +1022,7 @@ namespace ADOFAIMacro
             GUILayout.Space(4);
 
             GUILayout.BeginHorizontal();
-            GUILayout.Label(UseChinese ? "选择配置" : "Select Profile", UIUtils.LabelStyle, GUILayout.Width(100));
+            GUILayout.Label(LocalizationManager.Get("tech.select_profile"), UIUtils.LabelStyle, GUILayout.Width(100));
             string[] profileNames = _techniqueProfiles.Select(p => p.name).ToArray();
             int newIdx = UIUtils.M3SelectionGrid(SelectedTechniqueProfileIndex, profileNames,
                 Mathf.Min(profileNames.Length, 4), GUILayout.ExpandWidth(true));
@@ -1017,8 +1032,8 @@ namespace ADOFAIMacro
 
             // ── 起始手 ─────────────────────────────────────
             GUILayout.BeginHorizontal();
-            GUILayout.Label(UseChinese ? "起始手" : "Starting Hand", UIUtils.LabelStyle, GUILayout.Width(140));
-            string[] handOptions = UseChinese ? ["左手", "右手"] : ["Left", "Right"];
+            GUILayout.Label(LocalizationManager.Get("tech.starting_hand"), UIUtils.LabelStyle, GUILayout.Width(140));
+            string[] handOptions = [LocalizationManager.Get("tech.left_hand"), LocalizationManager.Get("tech.right_hand")];
             int newHand = UIUtils.M3SelectionGrid(TechniqueHandPreference, handOptions, 2, GUILayout.Width(200));
             if (newHand != TechniqueHandPreference)
             {
@@ -1031,7 +1046,7 @@ namespace ADOFAIMacro
             // ── 全局 BPM 阈值 ────────────────────────────────
             GUILayout.BeginHorizontal();
             TechniqueBpmLimit = UIUtils.M3HorizontalSliderWithLabelAndInput(
-                UseChinese ? "全局·速度阈值 (BPM)" : "Global · Speed Threshold (BPM)",
+                LocalizationManager.Get("tech.global_bpm_limit"),
                 TechniqueBpmLimit, 50f, 2000f,
                 ref _techBpmState.input, ref _techBpmState.focused,
                 "F0", 140, 220, 70);
@@ -1043,9 +1058,7 @@ namespace ADOFAIMacro
                 wordWrap = true,
                 normal = { textColor = new Color(0.7f, 0.7f, 0.7f, 0.8f) }
             };
-            GUILayout.Label(UseChinese
-                ? "超过此BPM时自动细分时间片，允许同一只手连续承担多个事件"
-                : "Above this BPM, time slices are subdivided so one hand handles multiple events", tipStyle);
+            GUILayout.Label(LocalizationManager.Get("tech.bpm_explanation"), tipStyle);
 
             // ── 变速分段 ─────────────────────────────────────
             DrawTechniqueSegments();
@@ -1053,25 +1066,25 @@ namespace ADOFAIMacro
             GUILayout.Space(8);
 
             // ── 全局左右手按键 ────────────────────────────────
-            string[] handLabels = UseChinese ? ["左手", "右手"] : ["Left Hand", "Right Hand"];
+            string[] handLabels = [LocalizationManager.Get("tech.left_hand"), LocalizationManager.Get("tech.right_hand")];
 
             GUILayout.Label($"── {handLabels[0]} ──", UIUtils.LabelStyle);
             GUILayout.Space(2);
 
             GUILayout.BeginHorizontal();
-            GUILayout.Label(UseChinese ? "按键序列:" : "Keys:", UIUtils.LabelStyle, GUILayout.Width(80));
+            GUILayout.Label(LocalizationManager.Get("tech.left_keys"), UIUtils.LabelStyle, GUILayout.Width(80));
             string newLK = UIUtils.M3TextField(TechLeftHandKeys, ref _techLeftKeysState.input, ref _techLeftKeysState.focused, UIUtils.TextFieldStyle, "TechLeftKeys");
             if (newLK != TechLeftHandKeys) { TechLeftHandKeys = newLK; _techniqueProfiles[SelectedTechniqueProfileIndex].leftHandKeys = newLK; }
             GUILayout.EndHorizontal();
 
             GUILayout.BeginHorizontal();
-            GUILayout.Label(UseChinese ? "时长比例:" : "Press Ratio:", UIUtils.LabelStyle, GUILayout.Width(80));
+            GUILayout.Label(LocalizationManager.Get("tech.left_press_ratio"), UIUtils.LabelStyle, GUILayout.Width(80));
             string newLP = UIUtils.M3TextField(TechLeftHandPressTimes, ref _techLeftPressTimesState.input, ref _techLeftPressTimesState.focused, UIUtils.TextFieldStyle, "TechLeftPressTimes");
             if (newLP != TechLeftHandPressTimes) { TechLeftHandPressTimes = newLP; _techniqueProfiles[SelectedTechniqueProfileIndex].leftHandPressTimes = newLP; }
             GUILayout.EndHorizontal();
 
             GUILayout.BeginHorizontal();
-            GUILayout.Label(UseChinese ? "按键顺序:" : "Key Order:", UIUtils.LabelStyle, GUILayout.Width(80));
+            GUILayout.Label(LocalizationManager.Get("tech.left_orders"), UIUtils.LabelStyle, GUILayout.Width(80));
             string newLO = UIUtils.M3TextField(TechLeftHandOrders, ref _techLeftOrdersState.input, ref _techLeftOrdersState.focused, UIUtils.TextFieldStyle, "TechLeftOrders");
             if (newLO != TechLeftHandOrders) { TechLeftHandOrders = newLO; _techniqueProfiles[SelectedTechniqueProfileIndex].leftHandOrders = newLO; }
             GUILayout.EndHorizontal();
@@ -1082,40 +1095,40 @@ namespace ADOFAIMacro
             GUILayout.Space(2);
 
             GUILayout.BeginHorizontal();
-            GUILayout.Label(UseChinese ? "按键序列:" : "Keys:", UIUtils.LabelStyle, GUILayout.Width(80));
+            GUILayout.Label(LocalizationManager.Get("tech.right_keys"), UIUtils.LabelStyle, GUILayout.Width(80));
             string newRK = UIUtils.M3TextField(TechRightHandKeys, ref _techRightKeysState.input, ref _techRightKeysState.focused, UIUtils.TextFieldStyle, "TechRightKeys");
             if (newRK != TechRightHandKeys) { TechRightHandKeys = newRK; _techniqueProfiles[SelectedTechniqueProfileIndex].rightHandKeys = newRK; }
             GUILayout.EndHorizontal();
 
             GUILayout.BeginHorizontal();
-            GUILayout.Label(UseChinese ? "时长比例:" : "Press Ratio:", UIUtils.LabelStyle, GUILayout.Width(80));
+            GUILayout.Label(LocalizationManager.Get("tech.right_press_ratio"), UIUtils.LabelStyle, GUILayout.Width(80));
             string newRP = UIUtils.M3TextField(TechRightHandPressTimes, ref _techRightPressTimesState.input, ref _techRightPressTimesState.focused, UIUtils.TextFieldStyle, "TechRightPressTimes");
             if (newRP != TechRightHandPressTimes) { TechRightHandPressTimes = newRP; _techniqueProfiles[SelectedTechniqueProfileIndex].rightHandPressTimes = newRP; }
             GUILayout.EndHorizontal();
 
             GUILayout.BeginHorizontal();
-            GUILayout.Label(UseChinese ? "按键顺序:" : "Key Order:", UIUtils.LabelStyle, GUILayout.Width(80));
+            GUILayout.Label(LocalizationManager.Get("tech.right_orders"), UIUtils.LabelStyle, GUILayout.Width(80));
             string newRO = UIUtils.M3TextField(TechRightHandOrders, ref _techRightOrdersState.input, ref _techRightOrdersState.focused, UIUtils.TextFieldStyle, "TechRightOrders");
             if (newRO != TechRightHandOrders) { TechRightHandOrders = newRO; _techniqueProfiles[SelectedTechniqueProfileIndex].rightHandOrders = newRO; }
             GUILayout.EndHorizontal();
 
             // ── 预设 ──────────────────────────────────────────
             GUILayout.Space(6);
-            GUILayout.Label(UseChinese ? "预设:" : "Presets:", UIUtils.LabelStyle);
+            GUILayout.Label(LocalizationManager.Get("tech.presets"), UIUtils.LabelStyle);
             GUILayout.BeginHorizontal();
-            if (GUILayout.Button("DF / JK", UIUtils.ButtonStyle, GUILayout.ExpandWidth(true)))
+            if (GUILayout.Button(LocalizationManager.Get("tech.preset_dfjk"), UIUtils.ButtonStyle, GUILayout.ExpandWidth(true)))
             {
                 TechLeftHandKeys = "D,F"; TechRightHandKeys = "J,K";
                 _techniqueProfiles[SelectedTechniqueProfileIndex].leftHandKeys = "D,F";
                 _techniqueProfiles[SelectedTechniqueProfileIndex].rightHandKeys = "J,K";
             }
-            if (GUILayout.Button("DS / JK", UIUtils.ButtonStyle, GUILayout.ExpandWidth(true)))
+            if (GUILayout.Button(LocalizationManager.Get("tech.preset_dsjk"), UIUtils.ButtonStyle, GUILayout.ExpandWidth(true)))
             {
                 TechLeftHandKeys = "D,S"; TechRightHandKeys = "J,K";
                 _techniqueProfiles[SelectedTechniqueProfileIndex].leftHandKeys = "D,S";
                 _techniqueProfiles[SelectedTechniqueProfileIndex].rightHandKeys = "J,K";
             }
-            if (GUILayout.Button("ASDF / JKL", UIUtils.ButtonStyle, GUILayout.ExpandWidth(true)))
+            if (GUILayout.Button(LocalizationManager.Get("tech.preset_asdfjkl"), UIUtils.ButtonStyle, GUILayout.ExpandWidth(true)))
             {
                 TechLeftHandKeys = "A,S,D,F"; TechRightHandKeys = "J,K,L";
                 _techniqueProfiles[SelectedTechniqueProfileIndex].leftHandKeys = "A,S,D,F";
@@ -1124,10 +1137,7 @@ namespace ADOFAIMacro
             GUILayout.EndHorizontal();
 
             GUILayout.Space(4);
-            GUILayout.Label(UseChinese
-                ? "按键顺序格式：用 | 分隔不同按键数，逗号分隔键序号(1-based)。留空=默认顺序。"
-                : "Order format: pipe separates key-count groups, comma separates indices (1-based). Empty = default.",
-                tipStyle);
+            GUILayout.Label(LocalizationManager.Get("tech.order_format"), tipStyle);
 
             GUILayout.EndVertical();
         }
@@ -1147,7 +1157,7 @@ namespace ADOFAIMacro
             while (_segmentExpanded.Count > segments.Count) _segmentExpanded.RemoveAt(_segmentExpanded.Count - 1);
 
             GUILayout.Space(6);
-            GUILayout.Label(UseChinese ? "变速分段设置" : "Speed Segments", UIUtils.HeaderStyle);
+            GUILayout.Label(LocalizationManager.Get("tech.speed_segments"), UIUtils.HeaderStyle);
 
             GUIStyle tipStyle = new(UIUtils.LabelStyle)
             {
@@ -1155,9 +1165,7 @@ namespace ADOFAIMacro
                 wordWrap = true,
                 normal = { textColor = new Color(0.65f, 0.65f, 0.65f, 0.8f) }
             };
-            GUILayout.Label(UseChinese
-                ? "留空的按键字段将继承全局配置。"
-                : "Empty key fields inherit the global configuration.", tipStyle);
+            GUILayout.Label(LocalizationManager.Get("tech.segment_inherit"), tipStyle);
             GUILayout.Space(4);
 
             for (int i = 0; i < segments.Count; i++)
@@ -1170,9 +1178,8 @@ namespace ADOFAIMacro
 
                 string arrow = _segmentExpanded[i] ? "▼" : "▶";
                 string overrideMk = seg.HasKeyOverride ? " ✎" : "";
-                string segLabel = UseChinese
-                    ? $"{arrow} 段 {i + 1}  [{seg.startFloor}~{seg.endFloor}]  BPM≤{seg.bpmLimit:F0}{overrideMk}"
-                    : $"{arrow} Seg {i + 1}  [{seg.startFloor}~{seg.endFloor}]  BPM≤{seg.bpmLimit:F0}{overrideMk}";
+                string segLabel = string.Format(LocalizationManager.Get("tech.segment_label"),
+                    arrow, i + 1, seg.startFloor, seg.endFloor, seg.bpmLimit, overrideMk);
 
                 if (GUILayout.Button(segLabel, UIUtils.ButtonStyle, GUILayout.ExpandWidth(true)))
                     _segmentExpanded[i] = !_segmentExpanded[i];
@@ -1196,14 +1203,14 @@ namespace ADOFAIMacro
                 // 地板范围
                 GUILayout.BeginHorizontal();
                 GUILayout.Space(16);
-                GUILayout.Label(UseChinese ? "起始地板" : "Start Floor", UIUtils.LabelStyle, GUILayout.Width(80));
+                GUILayout.Label(LocalizationManager.Get("tech.segment_start_floor"), UIUtils.LabelStyle, GUILayout.Width(80));
                 string newStart = UIUtils.M3TextField(seg.startFloor.ToString(),
                     ref state.startInput, ref state.startFocused,
                     UIUtils.TextFieldStyle, $"SegStart_{i}", GUILayout.Width(60));
                 if (int.TryParse(newStart, out int sv)) seg.startFloor = sv;
 
                 GUILayout.Label(" ~ ", UIUtils.LabelStyle, GUILayout.Width(20));
-                GUILayout.Label(UseChinese ? "结束地板" : "End Floor", UIUtils.LabelStyle, GUILayout.Width(80));
+                GUILayout.Label(LocalizationManager.Get("tech.segment_end_floor"), UIUtils.LabelStyle, GUILayout.Width(80));
                 string newEnd = UIUtils.M3TextField(seg.endFloor.ToString(),
                     ref state.endInput, ref state.endFocused,
                     UIUtils.TextFieldStyle, $"SegEnd_{i}", GUILayout.Width(60));
@@ -1214,7 +1221,7 @@ namespace ADOFAIMacro
                 GUILayout.BeginHorizontal();
                 GUILayout.Space(16);
                 seg.bpmLimit = UIUtils.M3HorizontalSliderWithLabelAndInput(
-                    UseChinese ? "BPM 阈值" : "BPM Limit",
+                    LocalizationManager.Get("tech.bpm_limit"),
                     seg.bpmLimit, 50f, 2000f,
                     ref state.bpmInput, ref state.bpmFocused,
                     "F0", 80, 160, 60);
@@ -1231,37 +1238,37 @@ namespace ADOFAIMacro
                 // ── 按键覆盖（可选）──────────────────────────
                 GUILayout.BeginHorizontal();
                 GUILayout.Space(16);
-                GUILayout.Label(UseChinese ? "左手按键:" : "L Keys:", UIUtils.LabelStyle, GUILayout.Width(80));
+                GUILayout.Label(LocalizationManager.Get("tech.left_keys"), UIUtils.LabelStyle, GUILayout.Width(80));
                 seg.leftHandKeys = GUILayout.TextField(seg.leftHandKeys, UIUtils.TextFieldStyle, GUILayout.ExpandWidth(true));
                 GUILayout.EndHorizontal();
 
                 GUILayout.BeginHorizontal();
                 GUILayout.Space(16);
-                GUILayout.Label(UseChinese ? "右手按键:" : "R Keys:", UIUtils.LabelStyle, GUILayout.Width(80));
+                GUILayout.Label(LocalizationManager.Get("tech.right_keys"), UIUtils.LabelStyle, GUILayout.Width(80));
                 seg.rightHandKeys = GUILayout.TextField(seg.rightHandKeys, UIUtils.TextFieldStyle, GUILayout.ExpandWidth(true));
                 GUILayout.EndHorizontal();
 
                 GUILayout.BeginHorizontal();
                 GUILayout.Space(16);
-                GUILayout.Label(UseChinese ? "左手时长:" : "L Ratio:", UIUtils.LabelStyle, GUILayout.Width(80));
+                GUILayout.Label(LocalizationManager.Get("tech.left_press_ratio"), UIUtils.LabelStyle, GUILayout.Width(80));
                 seg.leftHandPressTimes = GUILayout.TextField(seg.leftHandPressTimes, UIUtils.TextFieldStyle, GUILayout.ExpandWidth(true));
                 GUILayout.EndHorizontal();
 
                 GUILayout.BeginHorizontal();
                 GUILayout.Space(16);
-                GUILayout.Label(UseChinese ? "右手时长:" : "R Ratio:", UIUtils.LabelStyle, GUILayout.Width(80));
+                GUILayout.Label(LocalizationManager.Get("tech.right_press_ratio"), UIUtils.LabelStyle, GUILayout.Width(80));
                 seg.rightHandPressTimes = GUILayout.TextField(seg.rightHandPressTimes, UIUtils.TextFieldStyle, GUILayout.ExpandWidth(true));
                 GUILayout.EndHorizontal();
 
                 GUILayout.BeginHorizontal();
                 GUILayout.Space(16);
-                GUILayout.Label(UseChinese ? "左手顺序:" : "L Order:", UIUtils.LabelStyle, GUILayout.Width(80));
+                GUILayout.Label(LocalizationManager.Get("tech.left_orders"), UIUtils.LabelStyle, GUILayout.Width(80));
                 seg.leftHandOrders = GUILayout.TextField(seg.leftHandOrders, UIUtils.TextFieldStyle, GUILayout.ExpandWidth(true));
                 GUILayout.EndHorizontal();
 
                 GUILayout.BeginHorizontal();
                 GUILayout.Space(16);
-                GUILayout.Label(UseChinese ? "右手顺序:" : "R Order:", UIUtils.LabelStyle, GUILayout.Width(80));
+                GUILayout.Label(LocalizationManager.Get("tech.right_orders"), UIUtils.LabelStyle, GUILayout.Width(80));
                 seg.rightHandOrders = GUILayout.TextField(seg.rightHandOrders, UIUtils.TextFieldStyle, GUILayout.ExpandWidth(true));
                 GUILayout.EndHorizontal();
 
@@ -1270,7 +1277,7 @@ namespace ADOFAIMacro
             }
 
             GUILayout.Space(2);
-            if (GUILayout.Button(UseChinese ? "+ 添加分段" : "+ Add Segment", UIUtils.ButtonStyle))
+            if (GUILayout.Button(LocalizationManager.Get("tech.add_segment"), UIUtils.ButtonStyle))
                 segments.Add(new TechniqueSegment { bpmLimit = Main.Settings.TechniqueBpmLimit });
         }
 

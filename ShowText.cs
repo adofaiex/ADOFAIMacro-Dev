@@ -1,14 +1,13 @@
 ﻿using UnityEngine;
 using System;
 using ADOFAIMacro.Macro;
+using ADOFAIMacro.Localization;
 
 namespace ADOFAIMacro
 {
     public class ShowText : MonoBehaviour
     {
         private bool _showMacroText;
-        private readonly string _cachedTextEn = "Macro is enabled!";
-        private readonly string _cachedTextZh = "宏已开启！";
         private Rect _rect;
         private GUIStyle _textStyle;
         private GUIStyle _shadowStyle;
@@ -56,7 +55,7 @@ namespace ADOFAIMacro
         {
             if (_showMacroText)
             {
-                string text = Main.Settings.UseChinese ? _cachedTextZh : _cachedTextEn;
+                string text = LocalizationManager.Get("macro.enabled_text");
 
                 // 绘制阴影
                 GUI.Label(new Rect(_rect.x + 2, _rect.y + 2, _rect.width, _rect.height),

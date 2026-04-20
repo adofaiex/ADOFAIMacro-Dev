@@ -1,15 +1,15 @@
-# BaseMacro
+# ADOFAIMacro
 
 [![C# 10.0](https://img.shields.io/badge/C%23-10.0-239120?logo=csharp&logoColor=white)](https://dotnet.microsoft.com/zh-cn/languages/csharp)
 [![.NET Framework 4.8.1](https://img.shields.io/badge/.NET%20Framework-4.8.1-512BD4?logo=dotnet&logoColor=white)](https://dotnet.microsoft.com/zh-cn/download/dotnet-framework/net481)
 [![Visual Studio 2026](https://img.shields.io/badge/Visual%20Studio-2026-5C2D91?logo=visualstudio&logoColor=white)](https://visualstudio.microsoft.com/zh-hans/)
-[![License](https://img.shields.io/github/license/2228293026/BaseMacro?color=blue)](https://github.com/2228293026/BaseMacro/blob/master/LICENSE.txt)
-[![License: GPL-3.0](https://img.shields.io/badge/License-GPL--3.0-blue.svg)](https://github.com/2228293026/BaseMacro/blob/master/AsyncInputOptimize-LICENSE.txt)
-[![Downloads](https://img.shields.io/github/downloads/2228293026/BaseMacro/total)](https://github.com/2228293026/BaseMacro/releases)
+[![License](https://img.shields.io/github/license/2228293026/ADOFAIMacro?color=blue)](https://github.com/2228293026/ADOFAIMacro/blob/master/LICENSE.txt)
+[![License: GPL-3.0](https://img.shields.io/badge/License-GPL--3.0-blue.svg)](https://github.com/2228293026/ADOFAIMacro/blob/master/AsyncInputOptimize-LICENSE.txt)
+[![Downloads](https://img.shields.io/github/downloads/2228293026/ADOFAIMacro/total)](https://github.com/2228293026/ADOFAIMacro/releases)
 
 [English README](README.en.md)
 
-`BaseMacro` 是一个用于 **A Dance of Fire and Ice (ADOFAI)** 的 UnityModManager（UMM）模组，核心目标是提供更稳定、可调、可过滤的自动输入能力，覆盖从“直接判定触发”到“系统级按键模拟”的多种使用场景。
+`ADOFAIMacro` 是一个用于 **A Dance of Fire and Ice (ADOFAI)** 的 UnityModManager（UMM）模组，核心目标是提供更稳定、可调、可过滤的自动输入能力，覆盖从”直接判定触发”到”系统级按键模拟”的多种使用场景。
 
 ---
 
@@ -30,7 +30,7 @@
 
 ## 1. 功能简介
 
-BaseMacro 提供以下核心能力：
+ADOFAIMacro 提供以下核心能力：
 
 - **自动宏触发**：根据谱面时间点自动触发输入。
 - **双触发路径**：
@@ -40,7 +40,10 @@ BaseMacro 提供以下核心能力：
 - **时间偏移微调**：支持毫秒级偏移设置，并可在游戏中快速调参。
 - **死亡后自动按键（Death Key）**：可配置死亡后按键与触发延迟（依赖 SkyHook 模式）。
 - **按键过滤系统**：支持黑白名单与同步/异步按键列表，减少冲突输入。
-- **双语界面**：支持中文 / English UI 切换。
+- **多语言 UI 系统**：基于 JSON 的键值翻译，支持中文/English，可轻松扩展其他语言。
+- **保护翻译机制**：特定 UI 文本（如宏开启提示）使用硬编码翻译，防止玩家通过修改 JSON 文件篡改。
+
+---
 
 ---
 
@@ -81,10 +84,14 @@ BaseMacro 提供以下核心能力：
 
 ### 3.2 安装步骤
 
-1. 编译项目得到 `BaseMacro.dll`（及相关依赖）。
-2. 在 UMM 模组目录创建或定位 `Mods/BaseMacro`。
-3. 将 DLL 和所需文件复制到该目录。
-4. 启动游戏，在 UMM 面板中启用 `BaseMacro`。
+1. 编译项目得到 `ADOFAIMacro.dll`（及相关依赖）。
+2. 在 UMM 模组目录创建或定位 `Mods/ADOFAIMacro`。
+3. 将以下文件/文件夹复制到该目录：
+   - `ADOFAIMacro.dll`
+   - `Newtonsoft.Json.dll`（如果不在游戏目录中，请从 NuGet 包或游戏 Managed 目录复制）
+   - `Localization/` 文件夹（包含 `zh-CN.json` 和 `en-US.json`）
+   - 原生的 DLL（如 `InputSystem.dll`, `TechniqueSimulator.dll`，如果存在）
+4. 启动游戏，在 UMM 面板中启用 `ADOFAIMacro`。
 
 ### 3.3 更新建议
 
@@ -101,7 +108,7 @@ BaseMacro 提供以下核心能力：
 
 ## 4. 构建说明（开发者）
 
-本项目为 **.NET Framework** C# 项目（`BaseMacro.csproj`），依赖 ADOFAI 本体目录中的托管 DLL。
+本项目为 **.NET Framework** C# 项目（`ADOFAIMacro-Dev.csproj`），依赖 ADOFAI 本体目录中的托管 DLL。
 
 ### 4.1 关键依赖
 
@@ -111,6 +118,9 @@ BaseMacro 提供以下核心能力：
 - `UnityEngine.dll`
 - `UnityEngine.CoreModule.dll`
 - `SkyHook.Unity.dll`
+- `Newtonsoft.Json.dll`（本地化系统所需，请从游戏目录或 NuGet 获取）
+
+> 注意：本地化系统使用 `Newtonsoft.Json` 而非 Unity 的 `JsonUtility`，以支持 `Dictionary<string, string>` 反序列化。
 
 ### 4.2 开发工具下载（编程语言 / 编译器）
 
@@ -123,10 +133,14 @@ BaseMacro 提供以下核心能力：
 
 ### 4.3 本地构建流程
 
-1. 检查 `BaseMacro.csproj` 的 `HintPath`，指向你本机 ADOFAI 安装目录。
+1. 检查 `ADOFAIMacro-Dev.csproj` 的 `HintPath`，指向你本机 ADOFAI 安装目录。
 2. 如需，先执行 NuGet 还原（`packages.config` 方式）。
 3. 使用 Visual Studio 或 MSBuild 构建 `Release`。
-4. 将产物复制到 UMM 模组目录进行联调。
+4. 将以下产物复制到 UMM 模组目录（`Mods/ADOFAIMacro/`）进行联调：
+   - `ADOFAIMacro.dll`
+   - `Newtonsoft.Json.dll`
+   - `Localization/` 文件夹（包含 `zh-CN.json` 和 `en-US.json`）
+   - 以及任何需要的原生 DLL（`InputSystem.dll`, `TechniqueSimulator.dll` 等）
 
 ---
 
@@ -204,7 +218,7 @@ BaseMacro 提供以下核心能力：
 
 请按顺序检查：
 
-1. UMM 中 `BaseMacro` 是否已启用。
+1. UMM 中 `ADOFAIMacro` 是否已启用。
 2. `Macro` 是否打开。
 3. `MacroKeys` 格式是否正确（英文逗号分隔）。
 4. 若使用模拟输入，尝试切换 `SkyHookMode` 与 `InputMode`。
@@ -233,22 +247,27 @@ BaseMacro 提供以下核心能力：
 ## 9. 项目结构概览
 
 ```text
-BaseMacro/
-├─ Main.cs                # 入口与 Mod 生命周期
-├─ Settings.cs            # UI 与设置定义
-├─ UIUtils.cs             # UMM 面板绘制辅助
-├─ ShowText.cs            # 文本提示相关
-├─ Patches.cs             # Harmony 补丁逻辑
+ADOFAIMacro/
+├─ Main.cs                    # 入口与 Mod 生命周期
+├─ Settings.cs                # UI 与设置定义
+├─ UIUtils.cs                 # UMM 面板绘制辅助
+├─ ShowText.cs                # 文本提示相关
+├─ Patches.cs                 # Harmony 补丁逻辑
+├─ Localization/
+│  ├─ LocalizationManager.cs # 本地化管理器（JSON 加载/保护机制）
+│  ├─ zh-CN.json             # 简体中文翻译
+│  └─ en-US.json             # 英文翻译
 ├─ Macro/
-│  ├─ Macro.cs            # 核心宏触发逻辑
-│  ├─ InputSystem.cs      # 输入系统封装
-│  ├─ AsyncInputManager.cs# 异步输入管理
-│  ├─ DSPTimeSimulater.cs # 时间模拟辅助
-│  └─ SkyHookSystem.cs    # SkyHook 相关处理
+│  ├─ Macro.cs               # 核心宏触发逻辑
+│  ├─ InputSystem.cs         # 输入系统封装（P/Invoke 到 InputSystem.dll）
+│  ├─ AsyncInputManager.cs   # 异步输入管理
+│  ├─ DSPTimeSimulater.cs    # 时间模拟辅助
+│  ├─ SkyHookSystem.cs       # SkyHook 相关处理
+│  └─ TechniqueSimulator.cs  # 手法模拟器封装（P/Invoke 到 TechniqueSimulator.dll）
 └─ Platform/
-   ├─ Windows.cs          # Windows 平台实现
-   ├─ Linux.cs            # Linux 平台实现
-   └─ BaseSelect.cs       # 平台选择层
+   ├─ Windows.cs             # Windows 平台实现（高精度计时器）
+   ├─ Linux.cs               # Linux 平台实现
+   └─ BaseSelect.cs          # 平台选择层
 ```
 
 ---
@@ -263,7 +282,7 @@ BaseMacro/
 如果你在使用中遇到特定机型/系统版本相关问题，建议提交 issue 时附上：
 
 - 游戏版本
-- BaseMacro 版本
+- ADOFAIMacro 版本
 - 关键配置（可截图）
 - 是否使用 SkyHook / 当前 InputMode
 - 复现步骤与日志信息

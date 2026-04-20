@@ -1,15 +1,15 @@
-# BaseMacro
+# ADOFAIMacro
 
 [![C# 10.0](https://img.shields.io/badge/C%23-10.0-239120?logo=csharp&logoColor=white)](https://dotnet.microsoft.com/zh-cn/languages/csharp)
 [![.NET Framework 4.8.1](https://img.shields.io/badge/.NET%20Framework-4.8.1-512BD4?logo=dotnet&logoColor=white)](https://dotnet.microsoft.com/zh-cn/download/dotnet-framework/net481)
 [![Visual Studio 2026](https://img.shields.io/badge/Visual%20Studio-2026-5C2D91?logo=visualstudio&logoColor=white)](https://visualstudio.microsoft.com/zh-hans/)
-[![License](https://img.shields.io/github/license/2228293026/BaseMacro?color=blue)](https://github.com/2228293026/BaseMacro/blob/master/LICENSE.txt)
-[![License: GPL-3.0](https://img.shields.io/badge/License-GPL--3.0-blue.svg)](https://github.com/2228293026/BaseMacro/blob/master/AsyncInputOptimize-LICENSE.txt)
-[![Downloads](https://img.shields.io/github/downloads/2228293026/BaseMacro/total)](https://github.com/2228293026/BaseMacro/releases)
+[![License](https://img.shields.io/github/license/2228293026/ADOFAIMacro?color=blue)](https://github.com/2228293026/ADOFAIMacro/blob/master/LICENSE.txt)
+[![License: GPL-3.0](https://img.shields.io/badge/License-GPL--3.0-blue.svg)](https://github.com/2228293026/ADOFAIMacro/blob/master/AsyncInputOptimize-LICENSE.txt)
+[![Downloads](https://img.shields.io/github/downloads/2228293026/ADOFAIMacro/total)](https://github.com/2228293026/ADOFAIMacro/releases)
 
 [中文说明](README.md)
 
-`BaseMacro` is a UnityModManager (UMM) mod for **A Dance of Fire and Ice (ADOFAI)**. It is designed to provide stable, tunable, and filterable automated input workflows, from direct in-game hit triggering to system-level key simulation.
+`ADOFAIMacro` is a UnityModManager (UMM) mod for **A Dance of Fire and Ice (ADOFAI)**. It is designed to provide stable, tunable, and filterable automated input workflows, from direct in-game hit triggering to system-level key simulation.
 
 ---
 
@@ -30,7 +30,7 @@
 
 ## 1. Feature Overview
 
-BaseMacro includes the following core capabilities:
+ADOFAIMacro includes the following core capabilities:
 
 - **Automatic macro triggering** based on chart/floor timing.
 - **Dual trigger paths**:
@@ -40,7 +40,10 @@ BaseMacro includes the following core capabilities:
 - **Timing offset tuning** with in-game hotkey adjustment support.
 - **Death Key support** with configurable key and delay (SkyHook mode required).
 - **Key filtering system** with blacklist/whitelist logic for sync and async key sources.
-- **Bilingual UI** with Chinese/English switch in the settings panel.
+- **Multi-language UI system**: JSON-based key-value translations, currently supporting Chinese/English with easy extensibility.
+- **Protected translations**: Certain UI texts (e.g., macro enabled notification) use hardcoded translations, immune to JSON modifications.
+
+---
 
 ---
 
@@ -81,10 +84,14 @@ When `SkyHookMode = true`, you can select the lower-layer mode:
 
 ### 3.2 Installation Steps
 
-1. Build the project and obtain `BaseMacro.dll` (plus required dependencies).
-2. Create or locate `Mods/BaseMacro` in your UMM mods directory.
-3. Copy output DLLs/files into that folder.
-4. Launch the game and enable `BaseMacro` from UMM.
+1. Build the project and obtain `ADOFAIMacro.dll` (plus required dependencies).
+2. Create or locate `Mods/ADOFAIMacro` in your UMM mods directory.
+3. Copy the following files/folders into that directory:
+   - `ADOFAIMacro.dll`
+   - `Newtonsoft.Json.dll` (if not in game's Managed folder, copy from NuGet package)
+   - `Localization/` folder (contains `zh-CN.json` and `en-US.json`)
+   - Native DLLs (`InputSystem.dll`, `TechniqueSimulator.dll`) if present
+4. Launch the game and enable `ADOFAIMacro` from UMM.
 
 ### 3.3 Update Tips
 
@@ -101,7 +108,7 @@ When `SkyHookMode = true`, you can select the lower-layer mode:
 
 ## 4. Build Guide (Developers)
 
-This is a **.NET Framework** C# project (`BaseMacro.csproj`) that references several DLLs from your local ADOFAI installation.
+This is a **.NET Framework** C# project (`ADOFAIMacro-Dev.csproj`) that references several DLLs from your local ADOFAI installation.
 
 ### 4.1 Common Dependencies
 
@@ -109,13 +116,20 @@ This is a **.NET Framework** C# project (`BaseMacro.csproj`) that references sev
 - `UnityEngine.dll`
 - `UnityEngine.CoreModule.dll`
 - `SkyHook.Unity.dll`
+- `Newtonsoft.Json.dll` (required for localisation system, get from game Managed folder or NuGet)
+
+> Note: The localisation system uses `Newtonsoft.Json` instead of Unity's `JsonUtility` to support `Dictionary<string, string>` deserialization.
 
 ### 4.2 Local Build Flow
 
-1. Update `HintPath` values in `BaseMacro.csproj` to match your local ADOFAI path.
+1. Update `HintPath` values in `ADOFAIMacro-Dev.csproj` to match your local ADOFAI path.
 2. Restore NuGet packages if needed (`packages.config` style).
 3. Build `Release` with Visual Studio or MSBuild.
-4. Copy outputs into `Mods/BaseMacro` for live verification.
+4. Copy the following outputs into `Mods/ADOFAIMacro` for live verification:
+   - `ADOFAIMacro.dll`
+   - `Newtonsoft.Json.dll` (should copy automatically if referenced correctly)
+   - `Localization/` folder (with `zh-CN.json` and `en-US.json`)
+   - Native DLLs (`InputSystem.dll`, `TechniqueSimulator.dll`) if they exist in output
 
 ---
 
@@ -193,7 +207,7 @@ For reliability, tune on short levels first, then apply the profile to longer/ha
 
 Check in order:
 
-1. `BaseMacro` is enabled in UMM.
+1. `ADOFAIMacro` is enabled in UMM.
 2. `Macro` toggle is on.
 3. `MacroKeys` format is valid (comma-separated).
 4. If simulation is enabled, test with different `SkyHookMode` / `InputMode` combinations.
@@ -222,22 +236,27 @@ Check in order:
 ## 9. Project Structure
 
 ```text
-BaseMacro/
-├─ Main.cs                 # Entry and mod lifecycle
-├─ Settings.cs             # Settings and UMM UI
-├─ UIUtils.cs              # UI helper components/styles
-├─ ShowText.cs             # Text/overlay helper
-├─ Patches.cs              # Harmony patch definitions
+ADOFAIMacro/
+├─ Main.cs                    # Entry and mod lifecycle
+├─ Settings.cs                # Settings and UMM UI
+├─ UIUtils.cs                 # UI helper components/styles
+├─ ShowText.cs                # Text/overlay helper
+├─ Patches.cs                 # Harmony patch definitions
+├─ Localization/
+│  ├─ LocalizationManager.cs # Localization manager (JSON loading / protection)
+│  ├─ zh-CN.json             # Simplified Chinese translations
+│  └─ en-US.json             # English translations
 ├─ Macro/
-│  ├─ Macro.cs             # Core macro triggering logic
-│  ├─ InputSystem.cs       # Input abstraction / backend bridge
-│  ├─ AsyncInputManager.cs # Async input management
-│  ├─ DSPTimeSimulater.cs  # Timing simulation helper
-│  └─ SkyHookSystem.cs     # SkyHook-specific handling
+│  ├─ Macro.cs               # Core macro triggering logic
+│  ├─ InputSystem.cs         # Input system wrapper (P/Invoke to InputSystem.dll)
+│  ├─ AsyncInputManager.cs   # Async input management
+│  ├─ DSPTimeSimulater.cs    # Timing simulation helper
+│  ├─ SkyHookSystem.cs       # SkyHook-specific handling
+│  └─ TechniqueSimulator.cs  # Technique simulator wrapper (P/Invoke to TechniqueSimulator.dll)
 └─ Platform/
-   ├─ Windows.cs           # Windows platform implementation
-   ├─ Linux.cs             # Linux platform implementation
-   └─ BaseSelect.cs        # Platform selection layer
+   ├─ Windows.cs             # Windows platform (high-res timer)
+   ├─ Linux.cs               # Linux platform
+   └─ BaseSelect.cs          # Platform selection layer
 ```
 
 ---
@@ -252,7 +271,7 @@ BaseMacro/
 If you report an issue, include:
 
 - Game version
-- BaseMacro version
+- ADOFAIMacro version
 - Relevant settings (screenshot preferred)
 - Whether SkyHook is enabled and current `InputMode`
 - Reproduction steps and logs

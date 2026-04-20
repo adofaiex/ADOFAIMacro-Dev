@@ -31,6 +31,14 @@ namespace ADOFAIMacro
             Mod = modEntry;
             Settings = Settings.Load(modEntry);
 
+            // 初始化本地化系统
+            Localization.LocalizationManager.Initialize(modEntry.Path);
+            // 根据 Settings.UseChinese 加载对应语言
+            if (Settings.UseChinese)
+                Localization.LocalizationManager.LoadLanguage("zh-CN");
+            else
+                Localization.LocalizationManager.LoadLanguage("en-US");
+
             // 手动初始化 InputSystem
             if (InputSystem.Initialize())
             {
