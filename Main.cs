@@ -104,7 +104,7 @@ namespace ADOFAIMacro
                 // None
 
 #else
-                if (modEntry.Info.Version != "1.2.0" || modEntry.Info.Id != "ADOFAIMacro" || modEntry.Info.DisplayName != "ADOFAI Macro" || modEntry.Info.Author != "HitMargin" || modEntry.Info.AssemblyName != "ADOFAIMacro.dll" || modEntry.Info.EntryMethod != "ADOFAIMacro.Main.Load")
+                if (modEntry.Info.Version != "1.3.0" || modEntry.Info.Id != "ADOFAIMacro" || modEntry.Info.DisplayName != "ADOFAI Macro" || modEntry.Info.Author != "HitMargin" || modEntry.Info.AssemblyName != "ADOFAIMacro.dll" || modEntry.Info.EntryMethod != "ADOFAIMacro.Main.Load")
                 {
                     Mod?.Logger.Error("Modifying the Info.json file is NOT allowed!");
                     Application.Quit();
