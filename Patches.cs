@@ -13,17 +13,17 @@ namespace ADOFAIMacro
 {
     public class Patches
     {
-        // 普通按键缓存状态
-        private static HashSet<KeyCode> _cachedFilteredKeys = null;
+        // 普通按键缓存状态（位图优化）
+        private static bool[] _keyFilterMap; // 索引 = (int)KeyCode, true=在列表中, false=不在
         private static string _lastFilteredKeysString = "";
         private static int _lastFilterMode = 0;
         private static bool _lastEnableFilter = false;
 
         // 异步按键缓存状态（独立，不共享）
-        private static HashSet<ushort> _cachedFilteredAsyncKeys = null;
+        private static bool[] _asyncKeyFilterMap; // 索引 = VK code (0-255), true=在列表中
         private static string _lastFilteredAsyncKeysString = "";
-        private static int _lastAsyncFilterMode = 0;      // ← 独立
-        private static bool _lastAsyncEnableFilter = false; // ← 独立
+        private static int _lastAsyncFilterMode = 0;
+        private static bool _lastAsyncEnableFilter = false;
 
         [HarmonyPatch(typeof(scrController), "PlayerControl_Update")]
         public static class Patch_PlayerControl_Update
@@ -272,37 +272,43 @@ namespace ADOFAIMacro
             return result;
         }
 
-        // 检查普通按键是否允许通过
+        // 检查普通按键是否允许通过（位图优化版）
         private static bool IsKeyAllowed(KeyCode keyCode)
         {
             if (!Main.IsEnabled || !Main.Settings.Macro)
                 return true; // 如果宏未启用，不过滤任何按键
             if (!Main.Settings.EnableKeyFilter) return true;
 
-            // 缓存解析结果
-            if (_cachedFilteredKeys == null ||
+            // 需要重建位图？
+            if (_keyFilterMap == null ||
                 _lastFilteredKeysString != Main.Settings.FilteredKeys ||
                 _lastEnableFilter != Main.Settings.EnableKeyFilter ||
                 _lastFilterMode != Main.Settings.FilterMode)
             {
-                _cachedFilteredKeys = ParseKeyCodes(Main.Settings.FilteredKeys);
-                _lastFilteredKeysString = Main.Settings.FilteredKeys;
-                _lastEnableFilter = Main.Settings.EnableKeyFilter;
-                _lastFilterMode = Main.Settings.FilterMode;
+                BuildKeyFilterMap();
             }
 
-            bool inList = _cachedFilteredKeys.Contains(keyCode);
+            int idx = (int)keyCode;
+            if (idx >= _keyFilterMap.Length) return true; // 超出范围默认放行
 
-            // 黑名单模式：在列表中则阻止
-            if (Main.Settings.FilterMode == 0)
+            bool inList = _keyFilterMap[idx];
+            // 黑名单模式：在列表中则阻止；白名单模式：在列表中才允许
+            return Main.Settings.FilterMode == 0 ? !inList : inList;
+        }
+
+        // 构建按键过滤位图（使用 bool[]，默认 false）
+        private static void BuildKeyFilterMap()
+        {
+            _keyFilterMap = new bool[300];
+            var parsed = ParseKeyCodes(Main.Settings.FilteredKeys);
+            foreach (var kc in parsed)
             {
-                return !inList;
+                int idx = (int)kc;
+                if (idx < _keyFilterMap.Length) _keyFilterMap[idx] = true;
             }
-            // 白名单模式：在列表中才允许
-            else
-            {
-                return inList;
-            }
+            _lastFilteredKeysString = Main.Settings.FilteredKeys;
+            _lastEnableFilter = Main.Settings.EnableKeyFilter;
+            _lastFilterMode = Main.Settings.FilterMode;
         }
 
         // 修改 CountValidKeysPressed 补丁添加黑白名单逻辑
@@ -476,54 +482,40 @@ namespace ADOFAIMacro
             return result;
         }
 
-        // 检查异步按键是否允许通过
+        // 检查异步按键是否允许通过（位图优化版）
         private static bool IsAsyncKeyAllowed(ushort keyCode)
         {
             if (!Main.IsEnabled || !Main.Settings.Macro)
                 return true; // 如果宏未启用，不过滤任何按键
-            if (!Main.Settings.EnableKeyFilter)
-            {
-                // Main.Logger.Log($"Key filter disabled, allowing async key: {keyCode}");
-                return true;
-            }
+            if (!Main.Settings.EnableKeyFilter) return true;
 
-            // 缓存解析结果
-            if (_cachedFilteredAsyncKeys == null ||
+            // 需要重建位图？
+            if (_asyncKeyFilterMap == null ||
                 _lastFilteredAsyncKeysString != Main.Settings.FilteredAsyncKeys ||
                 _lastAsyncEnableFilter != Main.Settings.EnableKeyFilter ||
                 _lastAsyncFilterMode != Main.Settings.FilterMode)
             {
-                _cachedFilteredAsyncKeys = ParseAsyncKeyCodes(Main.Settings.FilteredAsyncKeys);
-                _lastFilteredAsyncKeysString = Main.Settings.FilteredAsyncKeys;
-                _lastAsyncEnableFilter = Main.Settings.EnableKeyFilter;  // ← 改这里
-                _lastAsyncFilterMode = Main.Settings.FilterMode;         // ← 改这里
+                BuildAsyncKeyFilterMap();
             }
 
-            bool inList = _cachedFilteredAsyncKeys.Contains(keyCode);
+            if (keyCode >= 256) return true; // 超出范围默认放行
+            bool inList = _asyncKeyFilterMap[keyCode];
+            // 黑名单模式：在列表中则阻止；白名单模式：在列表中才允许
+            return Main.Settings.FilterMode == 0 ? !inList : inList;
+        }
 
-            // 添加调试日志
-            Macro.Macro.Log($"Async key {keyCode} (0x{keyCode:X2}) in list: {inList}, FilterMode: {Main.Settings.FilterMode}");
-
-            // 黑名单模式：在列表中则阻止
-            if (Main.Settings.FilterMode == 0)
+        // 构建异步按键过滤位图（使用 bool[]，默认 false）
+        private static void BuildAsyncKeyFilterMap()
+        {
+            _asyncKeyFilterMap = new bool[256];
+            var parsed = ParseAsyncKeyCodes(Main.Settings.FilteredAsyncKeys);
+            foreach (var k in parsed)
             {
-                bool allowed = !inList;
-                if (!allowed)
-                {
-                    Macro.Macro.Log($"Blacklist blocked async key: {keyCode} (0x{keyCode:X2})");
-                }
-                return allowed;
+                if (k < 256) _asyncKeyFilterMap[k] = true;
             }
-            // 白名单模式：在列表中才允许
-            else
-            {
-                bool allowed = inList;
-                if (!allowed)
-                {
-                    Macro.Macro.Log($"Whitelist blocked async key: {keyCode} (0x{keyCode:X2})");
-                }
-                return allowed;
-            }
+            _lastFilteredAsyncKeysString = Main.Settings.FilteredAsyncKeys;
+            _lastAsyncEnableFilter = Main.Settings.EnableKeyFilter;
+            _lastAsyncFilterMode = Main.Settings.FilterMode;
         }
 
         // 修改 SkyHook 按键过滤补丁

@@ -135,6 +135,11 @@ namespace ADOFAIMacro.Macro
         private static volatile bool _cachedHighPrecision = false;
         private static volatile bool skyHookInitialized = false;
 
+        // 时间源委托（消除分支）
+        private static Func<long> _getTicksImpl;
+        private static readonly Func<long> _getTicksNormal;
+        private static readonly Func<long> _getTicksHigh;
+
         // ─────────────────────────────────────────────
         //  Win32
         // ─────────────────────────────────────────────
@@ -197,6 +202,10 @@ namespace ADOFAIMacro.Macro
             usePerfCounter = QueryPerformanceFrequency(out perfFrequency);
             perfFreqInv = (usePerfCounter && perfFrequency > 0) ? 1.0 / perfFrequency : 1e-7;
             for (int i = 0; i < 256; i++) scanCodeCache[i] = (byte)MapVirtualKey((uint)i, 0);
+            // 预分配时间源委托，避免每帧创建
+            _getTicksNormal = GetTicks;
+            _getTicksHigh = new Func<long>(DSPTimeSimulater.GetDSPTimeAsFileTime);
+            _getTicksImpl = _getTicksNormal; // 默认
         }
 
         // ═══════════════════════════════════════════════════════════════
@@ -218,6 +227,7 @@ namespace ADOFAIMacro.Macro
 
             if (settings.SkyHookMode != skyHookInitialized) SwitchMode(settings.SkyHookMode);
             _cachedHighPrecision = settings.HighPrecisionTime;
+            UpdateTicksDelegate(); // 同步时间源委托
 
             if (!initialized)
             {
@@ -354,8 +364,9 @@ namespace ADOFAIMacro.Macro
                         {
                             if (pitch <= 0.0) { Thread.Sleep(1); break; }
                             double waitSec = (triggerAt - audioNow) / pitch;
-                            if (waitSec > 0.005) { Thread.Sleep(1); break; }
-                            else if (waitSec > 0.002) Thread.Yield();
+                            if (waitSec > 0.01) { Thread.Sleep(1); break; } // 远future，睡眠
+                            else if (waitSec > 0.003) Thread.Yield(); // 近future，让出时间片
+                            else Thread.SpinWait(1000); // 极近，自旋等待
                             continue;
                         }
 
@@ -1311,13 +1322,15 @@ namespace ADOFAIMacro.Macro
         }
 
         // ─────────────────────────────────────────────
-        //  计时器
+        //  计时器（委托优化：消除分支）
         // ─────────────────────────────────────────────
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        private static long GetRawTicks()
+        private static long GetRawTicks() => _getTicksImpl();
+
+        // 切换时间源委托（根据 HighPrecision 设置）
+        private static void UpdateTicksDelegate()
         {
-            if (_cachedHighPrecision) return DSPTimeSimulater.GetDSPTimeAsFileTime();
-            return GetTicks();
+            _getTicksImpl = _cachedHighPrecision ? _getTicksHigh : _getTicksNormal;
         }
 
         [MethodImpl(MethodImplOptions.AggressiveInlining)]

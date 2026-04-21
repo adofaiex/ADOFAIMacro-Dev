@@ -257,16 +257,28 @@ namespace ADOFAIMacro.Macro
                     var events = new Macro.HitEvent[outCount];
                     int size = Marshal.SizeOf<NativeHitEvent>();
 
-                    for (int i = 0; i < outCount; i++)
+                    // 使用 unsafe 批量复制，避免 Marshal.PtrToStructure 的开销
+                    unsafe
                     {
-                        IntPtr ptr = IntPtr.Add(nativeEvents, i * size);
-                        var native = Marshal.PtrToStructure<NativeHitEvent>(ptr);
-                        events[i] = new Macro.HitEvent(
-                            native.TriggerTime,
-                            native.KeyCode,
-                            native.ReleaseOnly,
-                            native.IsHoldRelated,
-                            native.ReleaseKeyCode);
+                        byte* src = (byte*)nativeEvents;
+                        for (int i = 0; i < outCount; i++)
+                        {
+                            // 直接内存读取，避免函数调用和封送处理
+                            double triggerTime = *(double*)(src + i * size + 0);
+                            byte keyCode = *(src + i * size + 8);
+                            // 偏移 9-11: padding
+                            int releaseOnlyInt = *(int*)(src + i * size + 12);
+                            int isHoldRelatedInt = *(int*)(src + i * size + 16);
+                            byte releaseKeyCode = *(src + i * size + 20);
+                            // 偏移 21-23: padding
+
+                            events[i] = new Macro.HitEvent(
+                                triggerTime,
+                                keyCode,
+                                releaseOnlyInt != 0,
+                                isHoldRelatedInt != 0,
+                                releaseKeyCode);
+                        }
                     }
 
                     hitEvents = events;
