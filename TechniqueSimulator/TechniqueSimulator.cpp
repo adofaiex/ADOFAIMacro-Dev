@@ -227,7 +227,7 @@ HitEvent* BuildTechniqueHitEvents(
         bool needBack = false;
 
         vector<PieceInfo> pieces;
-        pieces.reserve(eventCount / 4 + 4);
+        pieces.reserve(static_cast<std::vector<PieceInfo, std::allocator<PieceInfo>>::size_type>(eventCount / 4) + 4);
 
         // ── 时间片划分 ────────────────────────────────────────
         while (nowD < eventCount) {
@@ -308,7 +308,7 @@ HitEvent* BuildTechniqueHitEvents(
 
         // ── 生成 HitEvent 列表 ────────────────────────────────
         vector<HitEvent> output;
-        output.reserve(eventCount * 2);
+        output.reserve(static_cast<std::vector<HitEvent, std::allocator<HitEvent>>::size_type>(eventCount) * 2);
 
         bool          activeHold = false;
         unsigned char activeHoldKey = 0;
