@@ -32,7 +32,6 @@ namespace ADOFAIMacro
             public static void Prefix(scrController __instance)
             {
                 Macro.Macro.Update(__instance);
-                Macro.Macro.HandleInput();
             }
         }
 
