@@ -86,9 +86,6 @@ namespace ADOFAIMacro.Macro
             public HitEvent[]? hitEvents;
             public int hitEventCount;
 
-            public byte[] keyCodesSnapshot;
-            public int keyCodesVersion;
-
             public int validFlag;
             public int staticVersion;
 
@@ -99,8 +96,6 @@ namespace ADOFAIMacro.Macro
                 [MethodImpl(MethodImplOptions.AggressiveInlining)]
                 get => Volatile.Read(ref validFlag) == 1;
             }
-
-            public TimeAnchor() { keyCodesSnapshot = []; }
         }
 
         private static readonly TimeAnchor _anchorA = new();
@@ -226,8 +221,12 @@ namespace ADOFAIMacro.Macro
             EnsureWorkerRunning();
 
             if (settings.SkyHookMode != skyHookInitialized) SwitchMode(settings.SkyHookMode);
-            _cachedHighPrecision = settings.HighPrecisionTime;
-            UpdateTicksDelegate(); // 同步时间源委托
+            bool hp = settings.HighPrecisionTime;
+            if (hp != _cachedHighPrecision)
+            {
+                _cachedHighPrecision = hp;
+                UpdateTicksDelegate();
+            } // 仅当设置变化时更新时间源委托
 
             if (!initialized)
             {
@@ -278,15 +277,6 @@ namespace ADOFAIMacro.Macro
                 anchor.staticVersion = _staticAnchorVersion;
             }
 
-            if (anchor.keyCodesVersion != _keyCodesVersion)
-            {
-                var localSnapshot = _keyCodesSnapshot; // atomic read
-                if (anchor.keyCodesSnapshot.Length != localSnapshot.Length)
-                    anchor.keyCodesSnapshot = new byte[localSnapshot.Length];
-                Array.Copy(localSnapshot, anchor.keyCodesSnapshot, localSnapshot.Length);
-                anchor.keyCodesVersion = _keyCodesVersion;
-            }
-
             Volatile.Write(ref anchor.validFlag, 1);
             Volatile.Write(ref _currentAnchor, anchor);
 
@@ -295,6 +285,22 @@ namespace ADOFAIMacro.Macro
 #if DEBUG
             Log($"[Macro-Main] 锚点已发布 pitch={pitch} lastFloor={lastFloor}");
 #endif
+
+            // Hotkey handling (merged from HandleInput to reduce call overhead)
+            if (Main.Settings.EnableKeyAdjust || Main.Settings.EnableArrowTimeAdjust)
+            {
+                bool ctrl = Input.GetKey(KeyCode.LeftControl) || Input.GetKey(KeyCode.RightControl);
+                if (ctrl && Main.Settings.EnableKeyAdjust)
+                {
+                    if (Input.GetKeyDown(KeyCode.LeftArrow)) Main.Settings.AdjustStep = Mathf.Clamp(Main.Settings.AdjustStep - 0.1f, 0.1f, 10f);
+                    else if (Input.GetKeyDown(KeyCode.RightArrow)) Main.Settings.AdjustStep = Mathf.Clamp(Main.Settings.AdjustStep + 0.1f, 0.1f, 10f);
+                }
+                else if (!ctrl && Main.Settings.EnableArrowTimeAdjust)
+                {
+                    if (Input.GetKeyDown(KeyCode.LeftArrow)) Main.Settings.TimeOffset -= Main.Settings.AdjustStep;
+                    else if (Input.GetKeyDown(KeyCode.RightArrow)) Main.Settings.TimeOffset += Main.Settings.AdjustStep;
+                }
+            }
         }
 
         // ═══════════════════════════════════════════════════════════════
@@ -1343,25 +1349,6 @@ namespace ADOFAIMacro.Macro
         // ─────────────────────────────────────────────
         //  输入调整
         // ─────────────────────────────────────────────
-        [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        public static void HandleInput()
-        {
-            if (!Main.Settings.Macro ||
-                ADOBase.sceneName == GCNS.sceneLevelSelect ||
-                ADOBase.controller.paused) return;
-
-            bool ctrl = Input.GetKey(KeyCode.LeftControl) || Input.GetKey(KeyCode.RightControl);
-            if (ctrl && Main.Settings.EnableKeyAdjust)
-            {
-                if (Input.GetKeyDown(KeyCode.LeftArrow)) Main.Settings.AdjustStep = Mathf.Clamp(Main.Settings.AdjustStep - 0.1f, 0.1f, 10f);
-                else if (Input.GetKeyDown(KeyCode.RightArrow)) Main.Settings.AdjustStep = Mathf.Clamp(Main.Settings.AdjustStep + 0.1f, 0.1f, 10f);
-            }
-            else if (!ctrl && Main.Settings.EnableArrowTimeAdjust)
-            {
-                if (Input.GetKeyDown(KeyCode.LeftArrow)) Main.Settings.TimeOffset -= Main.Settings.AdjustStep;
-                else if (Input.GetKeyDown(KeyCode.RightArrow)) Main.Settings.TimeOffset += Main.Settings.AdjustStep;
-            }
-        }
 
         // ─────────────────────────────────────────────
         //  日志
