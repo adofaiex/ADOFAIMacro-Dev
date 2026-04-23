@@ -1,0 +1,293 @@
+using System;
+using System.Collections.Generic;
+using System.IO;
+using System.Linq;
+using UnityEngine;
+
+#nullable enable
+
+namespace ADOFAIMacro.Macro
+{
+    /// <summary>
+    /// 关卡特定手法配置管理器
+    /// 负责保存/加载每个关卡的手手法模拟配置
+    /// </summary>
+    internal static class LevelTechniqueManager
+    {
+        private const string CONFIG_EXTENSION = ".adofaimacro.json";
+        private static string? _lastCheckedLevelPath = null;
+        private static readonly Dictionary<string, Settings.TechniqueProfile?> _loadedConfigs = new();
+        private static bool _autoLoadEnabled = true;
+
+        /// <summary>
+        /// 检测关卡变化并自动加载配置（应在关卡切换时调用，例如 Patches 或 scnGame Load 事件）
+        /// </summary>
+        public static void CheckAndLoadLevelConfig()
+        {
+            try
+            {
+                string? levelPath = ADOBase.levelPath;
+
+                // 如果没有关卡路径或文件不存在，不处理
+                if (string.IsNullOrEmpty(levelPath) || !File.Exists(levelPath))
+                {
+                    _lastCheckedLevelPath = null;
+                    return;
+                }
+
+                // 关卡未变化，跳过
+                if (levelPath == _lastCheckedLevelPath)
+                {
+                    return;
+                }
+
+                _lastCheckedLevelPath = levelPath;
+
+                if (_autoLoadEnabled)
+                {
+                    LoadConfigForLevel(levelPath);
+                }
+            }
+            catch (NullReferenceException)
+            {
+                // ADOBase 尚未初始化，忽略
+            }
+            catch (Exception ex)
+            {
+                Macro.Log($"[LevelTechnique] CheckAndLoadLevelConfig error: {ex.Message}");
+            }
+        }
+
+        /// <summary>
+        /// 立即重置检查状态（用于关卡切换时强制重新检测）
+        /// </summary>
+        public static void ResetCheckState()
+        {
+            _lastCheckedLevelPath = null;
+        }
+
+        /// <summary>
+        /// 为当前关卡加载配置（如果存在）
+        /// </summary>
+        private static void LoadConfigForLevel(string levelPath)
+        {
+            try
+            {
+                string configPath = GetConfigPath(levelPath);
+                if (!File.Exists(configPath))
+                {
+                    Macro.Log($"[LevelTechnique] 关卡配置不存在: {configPath}");
+                    return;
+                }
+
+                string json = File.ReadAllText(configPath);
+                var config = JsonUtility.FromJson<Settings.TechniqueProfile>(json);
+
+                if (config != null)
+                {
+                    _loadedConfigs[levelPath] = config;
+                    ApplyConfigToSettings(config);
+                    Macro.Log($"[LevelTechnique] 已加载关卡配置: {config.name} ({config.techniqueSegments?.Count ?? 0} 个分段)");
+                }
+            }
+            catch (Exception ex)
+            {
+                Macro.Log($"[LevelTechnique] 加载配置失败: {ex.Message}");
+            }
+        }
+
+        /// <summary>
+        /// 将配置应用到 Settings
+        /// </summary>
+        public static void ApplyConfigToSettings(Settings.TechniqueProfile config)
+        {
+            if (config == null) return;
+
+            var settings = Main.Settings;
+
+            // 应用到全局字段（这些会被用作默认值）
+            settings.TechLeftHandKeys = config.leftHandKeys;
+            settings.TechRightHandKeys = config.rightHandKeys;
+            settings.TechLeftHandOrders = config.leftHandOrders;
+            settings.TechRightHandOrders = config.rightHandOrders;
+            settings.TechLeftHandPressTimes = config.leftHandPressTimes;
+            settings.TechRightHandPressTimes = config.rightHandPressTimes;
+            settings.TechniqueHandPreference = config.handPreference;
+
+            // 应用到当前配置列表
+            if (settings.TechniqueProfiles.Count == 0)
+            {
+                settings.TechniqueProfiles.Add(new Settings.TechniqueProfile
+                {
+                    name = config.name,
+                    leftHandKeys = config.leftHandKeys,
+                    rightHandKeys = config.rightHandKeys,
+                    leftHandOrders = config.leftHandOrders,
+                    rightHandOrders = config.rightHandOrders,
+                    leftHandPressTimes = config.leftHandPressTimes,
+                    rightHandPressTimes = config.rightHandPressTimes,
+                    handPreference = config.handPreference,
+                    techniqueSegments = config.techniqueSegments ?? new List<Settings.TechniqueSegment>()
+                });
+                settings.SelectedTechniqueProfileIndex = 0;
+            }
+            else
+            {
+                // 更新当前选中的配置 - 注意：UI 直接编辑 currentProfile.techniqueSegments，所以只需更新简单字段
+                var current = settings.TechniqueProfiles[settings.SelectedTechniqueProfileIndex];
+                current.leftHandKeys = config.leftHandKeys;
+                current.rightHandKeys = config.rightHandKeys;
+                current.leftHandOrders = config.leftHandOrders;
+                current.rightHandOrders = config.rightHandOrders;
+                current.leftHandPressTimes = config.leftHandPressTimes;
+                current.rightHandPressTimes = config.rightHandPressTimes;
+                current.handPreference = config.handPreference;
+                // techniqueSegments 不覆盖，因为 UI 直接编辑它
+            }
+
+            // 重要：如果配置文件有分段而当前没有，则使用配置文件的分段
+            var currentAfterApply = settings.TechniqueProfiles[settings.SelectedTechniqueProfileIndex];
+            if (currentAfterApply.techniqueSegments == null || currentAfterApply.techniqueSegments.Count == 0)
+            {
+                if (config.techniqueSegments != null && config.techniqueSegments.Count > 0)
+                {
+                    currentAfterApply.techniqueSegments = new List<Settings.TechniqueSegment>(config.techniqueSegments);
+                }
+            }
+        }
+
+        /// <summary>
+        /// 保存当前 Settings 中的手法配置到关卡目录
+        /// </summary>
+        public static bool SaveConfigForCurrentLevel(string? customName = null)
+        {
+            string? levelPath = ADOBase.levelPath;
+            if (string.IsNullOrEmpty(levelPath) || !File.Exists(levelPath))
+            {
+                Macro.Log("[LevelTechnique] 无法保存配置：没有有效的关卡路径");
+                return false;
+            }
+
+            try
+            {
+                var settings = Main.Settings;
+                var currentProfile = settings.TechniqueProfiles[settings.SelectedTechniqueProfileIndex];
+                var profile = new Settings.TechniqueProfile
+                {
+                    name = customName ?? $"关卡配置 - {Path.GetFileNameWithoutExtension(levelPath)}",
+                    leftHandKeys = currentProfile.leftHandKeys,
+                    rightHandKeys = currentProfile.rightHandKeys,
+                    leftHandOrders = currentProfile.leftHandOrders,
+                    rightHandOrders = currentProfile.rightHandOrders,
+                    leftHandPressTimes = currentProfile.leftHandPressTimes,
+                    rightHandPressTimes = currentProfile.rightHandPressTimes,
+                    handPreference = currentProfile.handPreference,
+                    techniqueSegments = currentProfile.techniqueSegments
+                        .Select(s => new Settings.TechniqueSegment
+                        {
+                            startFloor = s.startFloor,
+                            endFloor = s.endFloor,
+                            bpmLimit = s.bpmLimit,
+                            leftHandKeys = s.leftHandKeys,
+                            rightHandKeys = s.rightHandKeys,
+                            leftHandOrders = s.leftHandOrders,
+                            rightHandOrders = s.rightHandOrders,
+                            leftHandPressTimes = s.leftHandPressTimes,
+                            rightHandPressTimes = s.rightHandPressTimes
+                        }).ToList()
+                };
+
+                string json = JsonUtility.ToJson(profile, true);
+                string configPath = GetConfigPath(levelPath);
+                File.WriteAllText(configPath, json);
+
+                _loadedConfigs[levelPath] = profile;
+                Macro.Log($"[LevelTechnique] 已保存关卡配置到: {configPath}");
+                return true;
+            }
+            catch (Exception ex)
+            {
+                Macro.Log($"[LevelTechnique] 保存配置失败: {ex.Message}");
+                return false;
+            }
+        }
+
+        /// <summary>
+        /// 获取关卡配置文件路径
+        /// </summary>
+        private static string GetConfigPath(string levelPath)
+        {
+            string levelDir = Path.GetDirectoryName(levelPath) ?? "";
+            string levelName = Path.GetFileNameWithoutExtension(levelPath);
+            return Path.Combine(levelDir, levelName + CONFIG_EXTENSION);
+        }
+
+        /// <summary>
+        /// 检查当前关卡是否有保存的配置
+        /// </summary>
+        public static bool HasConfigForCurrentLevel()
+        {
+            string? levelPath = ADOBase.levelPath;
+            if (string.IsNullOrEmpty(levelPath)) return false;
+
+            string configPath = GetConfigPath(levelPath);
+            return File.Exists(configPath);
+        }
+
+        /// <summary>
+        /// 删除当前关卡的配置
+        /// </summary>
+        public static bool DeleteConfigForCurrentLevel()
+        {
+            string? levelPath = ADOBase.levelPath;
+            if (string.IsNullOrEmpty(levelPath)) return false;
+
+            try
+            {
+                string configPath = GetConfigPath(levelPath);
+                if (File.Exists(configPath))
+                {
+                    File.Delete(configPath);
+                    _loadedConfigs.Remove(levelPath);
+                    Macro.Log($"[LevelTechnique] 已删除关卡配置: {configPath}");
+                    return true;
+                }
+                return false;
+            }
+            catch (Exception ex)
+            {
+                Macro.Log($"[LevelTechnique] 删除配置失败: {ex.Message}");
+                return false;
+            }
+        }
+
+        /// <summary>
+        /// 启用/禁用自动加载
+        /// </summary>
+        public static void SetAutoLoad(bool enabled)
+        {
+            _autoLoadEnabled = enabled;
+        }
+
+        /// <summary>
+        /// 强制重新加载当前关卡配置
+        /// </summary>
+        public static void ReloadCurrentLevelConfig()
+        {
+            if (!string.IsNullOrEmpty(_lastCheckedLevelPath))
+            {
+                _loadedConfigs.Remove(_lastCheckedLevelPath);
+                LoadConfigForLevel(_lastCheckedLevelPath);
+            }
+        }
+
+        /// <summary>
+        /// 获取当前关卡配置（如果已加载）
+        /// </summary>
+        public static Settings.TechniqueProfile? GetCurrentLevelConfig()
+        {
+            if (string.IsNullOrEmpty(_lastCheckedLevelPath)) return null;
+            return _loadedConfigs.TryGetValue(_lastCheckedLevelPath, out var config) ? config : null;
+        }
+    }
+}

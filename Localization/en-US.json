@@ -106,6 +106,22 @@
     "beta.warning_format": "⚠️ Beta Version {0} - Features may be unstable, use with caution ⚠️",
     "beta.feedback_message": "Please report issues via email. Thank you for testing!",
     "tech.segment_label": "{0} Seg {1}  [{2}~{3}]  BPM≤{4:F0}{5}",
-    "macro.enabled_text": "Macro is enabled!"
+    "macro.enabled_text": "Macro is enabled!",
+    "tech.level_config": "Level-specific Config",
+    "tech.level_config_auto_load": "Auto-load from level folder",
+    "tech.config_name_optional": "Config Name (Optional)",
+    "tech.level_config_load": "Load",
+    "tech.level_config_save": "Save to Level Folder",
+    "tech.level_config_delete": "Delete",
+    "tech.level_config_no_level": "No level loaded",
+    "tech.level_config_missing": "No saved config for '{0}'",
+    "tech.level_config_has": "Saved config found for '{0}'",
+    "tech.level_config_has_with_name": "Saved config for '{0}' (Profile: {1})",
+    "tech.level_config_error": "Error checking level config",
+    "tech.level_config_no_level_warn": "No level loaded!",
+    "tech.level_config_saved": "Config saved!",
+    "tech.level_config_save_failed": "Save failed!",
+    "tech.level_config_deleted": "Config deleted.",
+    "tech.level_config_delete_failed": "Delete failed!"
   }
 }

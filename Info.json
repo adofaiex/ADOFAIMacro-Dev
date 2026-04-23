@@ -8,6 +8,6 @@
   "Requirements": [],
   "AssemblyName": "ADOFAIMacro.dll",
   "EntryMethod": "ADOFAIMacro.Main.Load",
-  "HomePage": "https://github.com/2228293026/ADOFAIMacro",
-  "Repository": "https://raw.githubusercontent.com/2228293026/ADOFAIMacro/refs/heads/master/Repository.json"
+  "HomePage": "https://github.com/2228293026/ADOFAIMacro-Dev",
+  "Repository": "https://raw.githubusercontent.com/2228293026/ADOFAIMacro-Dev/refs/heads/master/Repository.json"
 }
