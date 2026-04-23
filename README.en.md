@@ -252,12 +252,35 @@ ADOFAIMacro/
 │  ├─ AsyncInputManager.cs   # Async input management
 │  ├─ DSPTimeSimulater.cs    # Timing simulation helper
 │  ├─ SkyHookSystem.cs       # SkyHook-specific handling
-│  └─ TechniqueSimulator.cs  # Technique simulator wrapper (P/Invoke to TechniqueSimulator.dll)
+│  ├─ TechniqueSimulator.cs  # Technique simulator wrapper (P/Invoke to TechniqueSimulator.dll)
+│  ├─ LevelTechniqueManager.cs # Level-specific technique configuration manager
+│  └─ KeyMap.cs              # Unified key name to virtual key code mapping
 └─ Platform/
    ├─ Windows.cs             # Windows platform (high-res timer)
    ├─ Linux.cs               # Linux platform
    └─ BaseSelect.cs          # Platform selection layer
 ```
+
+### 9.1 Level-Specific Technique Configuration
+
+`LevelTechniqueManager` handles saving and loading per-level technique simulation configurations. This allows you to use different hand pattern settings for different charts without manual reconfiguration.
+
+**Features:**
+- **Automatic level detection**: Loads saved configs automatically when entering a level
+- **Config file location**: Same directory as the level file, named `LevelName.adofaimacro.json`
+- **UI Integration**: In the Technique Simulation tab:
+  - View current level config status
+  - Manually load/save/delete level configs
+  - Custom config naming
+  - Auto-load toggle (`LevelConfigAutoLoad`)
+- **Configuration inheritance**: Level configs can override all global parameters (keys, orders, press times, BPM segments, etc.)
+
+**Typical use cases:**
+- Different key layouts for high BPM sections
+- Custom hand pattern orders for specific chart quirks
+- Fine-tuned parameters saved per chart
+
+> Access level config management at the bottom of the "Technique Simulation" settings card.
 
 ---
 

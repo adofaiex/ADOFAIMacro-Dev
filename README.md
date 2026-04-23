@@ -263,12 +263,35 @@ ADOFAIMacro/
 │  ├─ AsyncInputManager.cs   # 异步输入管理
 │  ├─ DSPTimeSimulater.cs    # 时间模拟辅助
 │  ├─ SkyHookSystem.cs       # SkyHook 相关处理
-│  └─ TechniqueSimulator.cs  # 手法模拟器封装（P/Invoke 到 TechniqueSimulator.dll）
+│  ├─ TechniqueSimulator.cs  # 手法模拟器封装（P/Invoke 到 TechniqueSimulator.dll）
+│  ├─ LevelTechniqueManager.cs # 关卡特定手法配置管理器
+│  └─ KeyMap.cs              # 按键名称到虚拟键码的统一映射
 └─ Platform/
    ├─ Windows.cs             # Windows 平台实现（高精度计时器）
    ├─ Linux.cs               # Linux 平台实现
    └─ BaseSelect.cs          # 平台选择层
 ```
+
+### 9.1 关卡特定手法配置
+
+`LevelTechniqueManager` 负责为每个关卡保存和加载独立的手法模拟配置。这意味着你可以为不同难度或风格的关卡使用不同的按键分配和参数，无需每次手动调整。
+
+**功能特性：**
+- **自动检测关卡切换**：进入新关卡时自动加载已保存的配置
+- **配置文件位置**：与关卡文件同目录，命名为 `关卡名.adofaimacro.json`
+- **UI 集成**：在设置界面中提供：
+  - 查看当前关卡配置状态
+  - 手动加载/保存/删除关卡配置
+  - 自定义配置名称
+  - 自动加载开关（`LevelConfigAutoLoad`）
+- **配置继承**：关卡配置可覆盖全局配置的所有参数（按键、顺序、按压时长、BPM 分段等）
+
+**使用场景示例：**
+- 为高 BPM 段落配置更小的按键组合
+- 为特定手癖设计特殊的按键顺序
+- 保存针对特定关卡的精细调参
+
+> 在"手法模拟"设置卡底部可管理当前关卡的配置。
 
 ---
 
