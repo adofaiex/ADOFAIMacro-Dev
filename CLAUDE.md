@@ -280,28 +280,34 @@ _asyncKeyFilterMap[vkCode] = true
 
 ```
 ADOFAIMacro/
-├── Main.cs                    # Mod entry point
-├── Patches.cs                 # Harmony patches
-├── Settings.cs                # Settings & UI
-├── ShowText.cs                # On-screen macro indicator
-├── UIUtils.cs                 # Material 3 UI helpers
+├── Main.cs                      # Mod entry point (UnityModManager)
+├── Patches.cs                   # Harmony patches for game interception
+├── Settings.cs                  # Settings & Material 3 UI
+├── ShowText.cs                  # On-screen macro indicator
+├── UIUtils.cs                   # UI helper components/styles
 ├── Localization/
-│   ├── LocalizationManager.cs # JSON-based translation system
-│   ├── zh-CN.json            # Simplified Chinese translations
-│   └── en-US.json            # English translations
+│   ├── LocalizationManager.cs  # JSON-based translation system
+│   ├── zh-CN.json              # Simplified Chinese translations
+│   └── en-US.json              # English translations
 ├── Macro/
-│   ├── Macro.cs               # Core macro logic
-│   ├── InputSystem.cs         # InputSystem.dll wrapper
-│   ├── TechniqueSimulator.cs  # TechniqueSimulator.dll wrapper
-│   ├── AsyncInputManager.cs   # Async input queue manager
-│   ├── DSPTimeSimulater.cs    # High-precision time
-│   ├── SkyHookSystem.cs       # SkyHook compatibility layer
-│   └── KeyMap.cs              # Key name to VK code mapping
+│   ├── Macro.cs                # Core macro logic (producer-consumer)
+│   ├── InputSystem.cs          # InputSystem.dll P/Invoke wrapper
+│   ├── TechniqueSimulator.cs   # TechniqueSimulator.dll P/Invoke wrapper
+│   ├── AsyncInputManager.cs    # SkyHook async input manager
+│   ├── DSPTimeSimulater.cs     # High-precision time compensation
+│   ├── SkyHookSystem.cs        # SkyHook interop types
+│   ├── LevelTechniqueManager.cs # Level-specific technique config manager
+│   └── KeyMap.cs               # Unified key name → VK code mapping
 ├── Platform/
-│   ├── BaseSelect.cs          # Platform abstraction
-│   ├── Windows.cs             # Windows high-res timer
-│   └── Linux.cs               # Linux high-res timer
-├── InputSystem/               # C++ InputSystem project
-├── TechniqueSimulator/        # C++ TechniqueSimulator project
-└── Info.json                 # Mod metadata
+│   ├── BaseSelect.cs           # Platform abstraction
+│   ├── Windows.cs              # Windows high-res timer impl
+│   └── Linux.cs                # Linux high-res timer impl
+├── InputSystem/                # C++ InputSystem project (VS 2022)
+├── TechniqueSimulator/         # C++ TechniqueSimulator project
+├── Info.json                   # Mod metadata for UMM
+├── ADOFAIMacro-Dev.csproj     # C# project file (.NET Framework 4.8.1)
+├── packages.config             # NuGet package references
+├── README.md                   # Chinese documentation
+├── README.en.md                # English documentation
+└── CLAUDE.md                   # This file
 ```
