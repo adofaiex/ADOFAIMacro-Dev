@@ -1436,7 +1436,7 @@ namespace ADOFAIMacro
 
             // 提示用户输入配置名称
             string defaultName = $"关卡配置 - {Path.GetFileNameWithoutExtension(ADOBase.levelPath)}";
-            string? customName = _levelConfigNameState.input;
+            var customName = _levelConfigNameState.input;
 
             bool success = LevelTechniqueManager.SaveConfigForCurrentLevel(
                 string.IsNullOrWhiteSpace(customName) ? defaultName : customName);

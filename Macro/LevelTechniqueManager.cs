@@ -254,7 +254,7 @@ namespace ADOFAIMacro.Macro
                 if (File.Exists(configPath))
                 {
                     File.Delete(configPath);
-                    _loadedConfigs.Remove(levelPath);
+                    _loadedConfigs.Remove(levelPath!); // levelPath 已检查过非 null
                     Macro.Log($"[LevelTechnique] 已删除关卡配置: {configPath}");
                     return true;
                 }
@@ -282,8 +282,8 @@ namespace ADOFAIMacro.Macro
         {
             if (!string.IsNullOrEmpty(_lastCheckedLevelPath))
             {
-                _loadedConfigs.Remove(_lastCheckedLevelPath);
-                LoadConfigForLevel(_lastCheckedLevelPath);
+                _loadedConfigs.Remove(_lastCheckedLevelPath!); // _lastCheckedLevelPath 已检查过非 null
+                LoadConfigForLevel(_lastCheckedLevelPath!);
             }
         }
 
@@ -293,7 +293,7 @@ namespace ADOFAIMacro.Macro
         public static Settings.TechniqueProfile? GetCurrentLevelConfig()
         {
             if (string.IsNullOrEmpty(_lastCheckedLevelPath)) return null;
-            return _loadedConfigs.TryGetValue(_lastCheckedLevelPath, out var config) ? config : null;
+            return _loadedConfigs.TryGetValue(_lastCheckedLevelPath!, out var config) ? config : null;
         }
     }
 }
