@@ -156,6 +156,7 @@
     <Compile Include="Macro\AsyncInputManager.cs" />
     <Compile Include="Macro\InputSystem.cs" />
     <Compile Include="Macro\KeyMap.cs" />
+    <Compile Include="Macro\LevelTechniqueManager.cs" />
     <Compile Include="Macro\TechniqueSimulator.cs" />
     <Compile Include="Platform\BaseSelect.cs" />
     <Compile Include="Platform\Linux.cs" />

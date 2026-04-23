@@ -106,6 +106,22 @@
     "beta.warning_format": "⚠️ 测试版本 {0} - 功能可能不稳定，请谨慎使用 ⚠️",
     "beta.feedback_message": "如遇问题请通过邮箱反馈，感谢您的测试！",
     "tech.segment_label": "{0} 段 {1}  [{2}~{3}]  BPM≤{4:F0}{5}",
-    "macro.enabled_text": "宏已开启！"
+    "macro.enabled_text": "宏已开启！",
+    "tech.level_config": "关卡配置",
+    "tech.level_config_auto_load": "自动从关卡目录加载",
+    "tech.config_name_optional": "配置名称（可选）",
+    "tech.level_config_load": "加载",
+    "tech.level_config_save": "保存到关卡目录",
+    "tech.level_config_delete": "删除",
+    "tech.level_config_no_level": "未加载关卡",
+    "tech.level_config_missing": "'{0}' 没有保存的配置",
+    "tech.level_config_has": "'{0}' 已有保存的配置",
+    "tech.level_config_has_with_name": "'{0}' 已有保存的配置 (配置名: {1})",
+    "tech.level_config_error": "检查关卡配置时出错",
+    "tech.level_config_no_level_warn": "未加载关卡！",
+    "tech.level_config_saved": "配置已保存！",
+    "tech.level_config_save_failed": "保存失败！",
+    "tech.level_config_deleted": "配置已删除。",
+    "tech.level_config_delete_failed": "删除失败！"
   }
 }

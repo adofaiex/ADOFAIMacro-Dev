@@ -39,14 +39,47 @@ namespace ADOFAIMacro
         public static class Patch_Awake_Rewind
         {
             [HarmonyPostfix]
-            public static void Postfix(scrController __instance) => Macro.Macro.Reset(__instance);
+            public static void Postfix(scrController __instance)
+            {
+                Macro.Macro.Reset(__instance);
+                // 关卡重置时，尝试加载关卡特定配置
+                if (Main.Settings.SimulateKeyPress && Main.Settings.EnableTechniqueSimulation && Main.Settings.LevelConfigAutoLoad)
+                {
+                    LevelTechniqueManager.ResetCheckState();
+                    LevelTechniqueManager.CheckAndLoadLevelConfig();
+                }
+            }
         }
 
         [HarmonyPatch(typeof(scrController), nameof(scrController.Restart))]
         public static class Patch_Restart
         {
             [HarmonyPrefix]
-            public static void Prefix(scrController __instance) => Macro.Macro.Reset(__instance);
+            public static void Prefix(scrController __instance)
+            {
+                Macro.Macro.Reset(__instance);
+                // 关卡重启时，尝试加载关卡特定配置
+                if (Main.Settings.SimulateKeyPress && Main.Settings.EnableTechniqueSimulation && Main.Settings.LevelConfigAutoLoad)
+                {
+                    LevelTechniqueManager.ResetCheckState();
+                    LevelTechniqueManager.CheckAndLoadLevelConfig();
+                }
+            }
+        }
+
+        // 关卡加载完成时也检测一次
+        [HarmonyPatch(typeof(scnGame), "LoadAndPlayLevel")]
+        public static class Patch_scnGame_LoadAndPlayLevel
+        {
+            [HarmonyPostfix]
+            public static void Postfix(bool __result, string levelPath)
+            {
+                if (__result && Main.Settings.SimulateKeyPress && Main.Settings.EnableTechniqueSimulation && Main.Settings.LevelConfigAutoLoad)
+                {
+                    LevelTechniqueManager.ResetCheckState();
+                    LevelTechniqueManager.CheckAndLoadLevelConfig();
+                }
+            }
         }
 
         [HarmonyPatch(typeof(scnEditor), "Start")]

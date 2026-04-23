@@ -4,6 +4,7 @@ using HarmonyLib;
 using Newgrounds;
 using System;
 using System.Collections.Generic;
+using System.IO;
 using System.Linq;
 using System.Reflection;
 using UnityEngine;
@@ -381,6 +382,28 @@ namespace ADOFAIMacro
             p.leftHandPressTimes = TechLeftHandPressTimes;
             p.rightHandPressTimes = TechRightHandPressTimes;
             p.handPreference = TechniqueHandPreference;
+
+            // 保存分段配置：深拷贝当前分段列表
+            var currentSegments = p.techniqueSegments;
+            if (currentSegments != null)
+            {
+                p.techniqueSegments = currentSegments.Select(s => new TechniqueSegment
+                {
+                    startFloor = s.startFloor,
+                    endFloor = s.endFloor,
+                    bpmLimit = s.bpmLimit,
+                    leftHandKeys = s.leftHandKeys,
+                    rightHandKeys = s.rightHandKeys,
+                    leftHandOrders = s.leftHandOrders,
+                    rightHandOrders = s.rightHandOrders,
+                    leftHandPressTimes = s.leftHandPressTimes,
+                    rightHandPressTimes = s.rightHandPressTimes
+                }).ToList();
+            }
+            else
+            {
+                p.techniqueSegments = new List<TechniqueSegment>();
+            }
         }
 
 #if DEBUG
@@ -391,6 +414,17 @@ namespace ADOFAIMacro
             set { if (_useCppTechniqueInDebug == value) return; _useCppTechniqueInDebug = value; }
         }
 #endif
+
+        // ── 关卡特定手法配置 ─────────────────────────────
+        private static bool _levelConfigAutoLoad = true;
+        public bool LevelConfigAutoLoad
+        {
+            get => _levelConfigAutoLoad;
+            set { if (_levelConfigAutoLoad == value) return; _levelConfigAutoLoad = value; }
+        }
+
+        private (string input, bool focused) _levelConfigNameState = (string.Empty, false);
+        private string _levelConfigStatus = "";
 
         // ─────────────────────────────────────────────
         //  按键代码映射
@@ -951,6 +985,75 @@ namespace ADOFAIMacro
             GUILayout.EndHorizontal();
             GUILayout.Space(4);
 
+            // ── 关卡特定配置管理 ─────────────────────────────
+            GUILayout.BeginVertical();
+            GUILayout.Label(LocalizationManager.Get("tech.level_config"), UIUtils.LabelStyle);
+            GUILayout.Space(2);
+
+            // 显示当前关卡状态
+            string levelStatus = GetLevelConfigStatusText();
+            GUIStyle statusStyle1 = new(UIUtils.LabelStyle)
+            {
+                fontSize = 10,
+                richText = true,
+                normal = { textColor = new Color(0.7f, 0.7f, 0.7f, 0.8f) }
+            };
+            GUILayout.Label(levelStatus, statusStyle1);
+            GUILayout.Space(4);
+
+            // 自动加载开关和操作按钮
+            GUILayout.BeginHorizontal();
+            GUILayout.Space(10);
+            LevelConfigAutoLoad = UIUtils.M3Switch(LevelConfigAutoLoad,
+                LocalizationManager.Get("tech.level_config_auto_load"));
+            GUILayout.FlexibleSpace();
+
+            if (GUILayout.Button(LocalizationManager.Get("tech.level_config_load"), UIUtils.ButtonStyle, GUILayout.Width(80)))
+            {
+                LevelTechniqueManager.ReloadCurrentLevelConfig();
+            }
+            if (GUILayout.Button(LocalizationManager.Get("tech.level_config_save"), UIUtils.ButtonStyle, GUILayout.Width(80)))
+            {
+                SaveLevelConfigToFile();
+            }
+            if (GUILayout.Button(LocalizationManager.Get("tech.level_config_delete"), UIUtils.ButtonStyle, GUILayout.Width(80)))
+            {
+                DeleteLevelConfigFile();
+            }
+            GUILayout.EndHorizontal();
+
+            // 自定义配置名称输入（可选）
+            GUILayout.BeginHorizontal();
+            GUILayout.Space(10);
+            GUILayout.Label(LocalizationManager.Get("tech.config_name_optional") + ":", UIUtils.LabelStyle, GUILayout.Width(100));
+            string newName = UIUtils.M3TextField(_levelConfigNameState.input,
+                ref _levelConfigNameState.input, ref _levelConfigNameState.focused,
+                UIUtils.TextFieldStyle, "LevelConfigName");
+            if (newName != _levelConfigNameState.input)
+            {
+                _levelConfigNameState.input = newName;
+            }
+            GUILayout.EndHorizontal();
+
+            // 状态消息
+            if (!string.IsNullOrEmpty(_levelConfigStatus))
+            {
+                GUILayout.BeginHorizontal();
+                GUILayout.Space(10);
+                GUIStyle statusMsgStyle = new(UIUtils.LabelStyle)
+                {
+                    fontSize = 9,
+                    richText = true,
+                    normal = { textColor = new Color(0.6f, 0.6f, 0.6f, 0.9f) }
+                };
+                GUILayout.Label(_levelConfigStatus, statusMsgStyle);
+                GUILayout.EndHorizontal();
+            }
+
+            GUILayout.Space(4);
+            GUILayout.EndVertical();
+            // ────────────────────────────────────────────────────────
+
             bool oldEnabled = GUI.enabled;
 #if !DEBUG
             if (!dllLoaded) GUI.enabled = false;
@@ -1000,10 +1103,10 @@ namespace ADOFAIMacro
             // ── 配置管理 ────────────────────────────────────
             GUILayout.BeginHorizontal();
             GUILayout.Label(LocalizationManager.Get("tech.profile_name"), UIUtils.LabelStyle, GUILayout.Width(100));
-            string newName = GUILayout.TextField(_techniqueProfiles[SelectedTechniqueProfileIndex].name,
+            string profileName = GUILayout.TextField(_techniqueProfiles[SelectedTechniqueProfileIndex].name,
                 UIUtils.TextFieldStyle, GUILayout.ExpandWidth(true));
-            if (newName != _techniqueProfiles[SelectedTechniqueProfileIndex].name)
-                _techniqueProfiles[SelectedTechniqueProfileIndex].name = newName;
+            if (profileName != _techniqueProfiles[SelectedTechniqueProfileIndex].name)
+                _techniqueProfiles[SelectedTechniqueProfileIndex].name = profileName;
 
             if (GUILayout.Button(LocalizationManager.Get("tech.new"), UIUtils.ButtonStyle, GUILayout.Width(60)))
             {
@@ -1287,5 +1390,80 @@ namespace ADOFAIMacro
         public void OnSaveGUI(UnityModManager.ModEntry modEntry) => Save(modEntry);
         public override void Save(UnityModManager.ModEntry modEntry) => Save(this, modEntry);
         public static Settings Load(UnityModManager.ModEntry modEntry) => Load<Settings>(modEntry);
+
+        // ─────────────────────────────────────────────
+        //  关卡特定配置辅助方法
+        // ─────────────────────────────────────────────
+        private string GetLevelConfigStatusText()
+        {
+            try
+            {
+                if (string.IsNullOrEmpty(ADOBase.levelPath))
+                {
+                    return LocalizationManager.Get("tech.level_config_no_level");
+                }
+
+                bool hasConfig = LevelTechniqueManager.HasConfigForCurrentLevel();
+                string levelName = Path.GetFileNameWithoutExtension(ADOBase.levelPath);
+                string key = hasConfig ? "tech.level_config_has" : "tech.level_config_missing";
+
+                var config = LevelTechniqueManager.GetCurrentLevelConfig();
+                if (hasConfig && config != null)
+                {
+                    int segCount = config.techniqueSegments?.Count ?? 0;
+                    return string.Format(LocalizationManager.Get("tech.level_config_has_with_name"), levelName, config.name) +
+                           $" (segments: {segCount})";
+                }
+
+                return string.Format(LocalizationManager.Get(key), levelName);
+            }
+            catch
+            {
+                return LocalizationManager.Get("tech.level_config_error");
+            }
+        }
+
+        private void SaveLevelConfigToFile()
+        {
+            if (string.IsNullOrEmpty(ADOBase.levelPath))
+            {
+                _levelConfigStatus = LocalizationManager.Get("tech.level_config_no_level_warn");
+                return;
+            }
+
+            // 先将当前全局字段保存到选中的配置文件（确保包含最新的按键、顺序、时长等设置）
+            SaveCurrentToProfile(SelectedTechniqueProfileIndex);
+
+            // 提示用户输入配置名称
+            string defaultName = $"关卡配置 - {Path.GetFileNameWithoutExtension(ADOBase.levelPath)}";
+            string? customName = _levelConfigNameState.input;
+
+            bool success = LevelTechniqueManager.SaveConfigForCurrentLevel(
+                string.IsNullOrWhiteSpace(customName) ? defaultName : customName);
+
+            if (success)
+            {
+                _levelConfigStatus = "<color=green>" + LocalizationManager.Get("tech.level_config_saved") + "</color>";
+                // 清空输入
+                _levelConfigNameState.input = "";
+                _levelConfigNameState.focused = false;
+            }
+            else
+            {
+                _levelConfigStatus = "<color=red>" + LocalizationManager.Get("tech.level_config_save_failed") + "</color>";
+            }
+        }
+
+        private void DeleteLevelConfigFile()
+        {
+            if (LevelTechniqueManager.DeleteConfigForCurrentLevel())
+            {
+                _levelConfigStatus = "<color=yellow>" + LocalizationManager.Get("tech.level_config_deleted") + "</color>";
+            }
+            else
+            {
+                _levelConfigStatus = "<color=red>" + LocalizationManager.Get("tech.level_config_delete_failed") + "</color>";
+            }
+        }
     }
 }
