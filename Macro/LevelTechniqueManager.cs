@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using UnityEngine;
+using Newtonsoft.Json;
 
 #nullable enable
 
@@ -81,7 +82,7 @@ namespace ADOFAIMacro.Macro
                 }
 
                 string json = File.ReadAllText(configPath);
-                var config = JsonUtility.FromJson<Settings.TechniqueProfile>(json);
+                var config = JsonConvert.DeserializeObject<Settings.TechniqueProfile>(json);
 
                 if (config != null)
                 {
@@ -127,13 +128,13 @@ namespace ADOFAIMacro.Macro
                     leftHandPressTimes = config.leftHandPressTimes,
                     rightHandPressTimes = config.rightHandPressTimes,
                     handPreference = config.handPreference,
-                    techniqueSegments = config.techniqueSegments ?? new List<Settings.TechniqueSegment>()
+                    techniqueSegments = CloneTechniqueSegments(config.techniqueSegments)
                 });
                 settings.SelectedTechniqueProfileIndex = 0;
             }
             else
             {
-                // 更新当前选中的配置 - 注意：UI 直接编辑 currentProfile.techniqueSegments，所以只需更新简单字段
+                // 更新当前选中的配置
                 var current = settings.TechniqueProfiles[settings.SelectedTechniqueProfileIndex];
                 current.leftHandKeys = config.leftHandKeys;
                 current.rightHandKeys = config.rightHandKeys;
@@ -142,18 +143,35 @@ namespace ADOFAIMacro.Macro
                 current.leftHandPressTimes = config.leftHandPressTimes;
                 current.rightHandPressTimes = config.rightHandPressTimes;
                 current.handPreference = config.handPreference;
-                // techniqueSegments 不覆盖，因为 UI 直接编辑它
-            }
 
-            // 重要：如果配置文件有分段而当前没有，则使用配置文件的分段
-            var currentAfterApply = settings.TechniqueProfiles[settings.SelectedTechniqueProfileIndex];
-            if (currentAfterApply.techniqueSegments == null || currentAfterApply.techniqueSegments.Count == 0)
-            {
-                if (config.techniqueSegments != null && config.techniqueSegments.Count > 0)
+                // 如果配置文件有分段，则覆盖当前分段（包括空列表表示清除）
+                if (config.techniqueSegments != null)
                 {
-                    currentAfterApply.techniqueSegments = new List<Settings.TechniqueSegment>(config.techniqueSegments);
+                    current.techniqueSegments = CloneTechniqueSegments(config.techniqueSegments);
                 }
+                // 如果配置文件没有分段（null），保持当前分段不变
             }
+        }
+
+        /// <summary>
+        /// 深拷贝手法分段列表
+        /// </summary>
+        private static List<Settings.TechniqueSegment> CloneTechniqueSegments(List<Settings.TechniqueSegment>? segments)
+        {
+            if (segments == null) return new List<Settings.TechniqueSegment>();
+
+            return segments.Select(s => new Settings.TechniqueSegment
+            {
+                startFloor = s.startFloor,
+                endFloor = s.endFloor,
+                bpmLimit = s.bpmLimit,
+                leftHandKeys = s.leftHandKeys,
+                rightHandKeys = s.rightHandKeys,
+                leftHandOrders = s.leftHandOrders,
+                rightHandOrders = s.rightHandOrders,
+                leftHandPressTimes = s.leftHandPressTimes,
+                rightHandPressTimes = s.rightHandPressTimes
+            }).ToList();
         }
 
         /// <summary>
@@ -182,22 +200,10 @@ namespace ADOFAIMacro.Macro
                     leftHandPressTimes = currentProfile.leftHandPressTimes,
                     rightHandPressTimes = currentProfile.rightHandPressTimes,
                     handPreference = currentProfile.handPreference,
-                    techniqueSegments = currentProfile.techniqueSegments
-                        .Select(s => new Settings.TechniqueSegment
-                        {
-                            startFloor = s.startFloor,
-                            endFloor = s.endFloor,
-                            bpmLimit = s.bpmLimit,
-                            leftHandKeys = s.leftHandKeys,
-                            rightHandKeys = s.rightHandKeys,
-                            leftHandOrders = s.leftHandOrders,
-                            rightHandOrders = s.rightHandOrders,
-                            leftHandPressTimes = s.leftHandPressTimes,
-                            rightHandPressTimes = s.rightHandPressTimes
-                        }).ToList()
+                    techniqueSegments = CloneTechniqueSegments(currentProfile.techniqueSegments)
                 };
 
-                string json = JsonUtility.ToJson(profile, true);
+                string json = JsonConvert.SerializeObject(profile, Formatting.Indented);
                 string configPath = GetConfigPath(levelPath);
                 File.WriteAllText(configPath, json);
 

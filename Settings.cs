@@ -382,6 +382,28 @@ namespace ADOFAIMacro
             p.leftHandPressTimes = TechLeftHandPressTimes;
             p.rightHandPressTimes = TechRightHandPressTimes;
             p.handPreference = TechniqueHandPreference;
+
+            // 保存分段配置：深拷贝当前分段列表
+            var currentSegments = p.techniqueSegments;
+            if (currentSegments != null)
+            {
+                p.techniqueSegments = currentSegments.Select(s => new TechniqueSegment
+                {
+                    startFloor = s.startFloor,
+                    endFloor = s.endFloor,
+                    bpmLimit = s.bpmLimit,
+                    leftHandKeys = s.leftHandKeys,
+                    rightHandKeys = s.rightHandKeys,
+                    leftHandOrders = s.leftHandOrders,
+                    rightHandOrders = s.rightHandOrders,
+                    leftHandPressTimes = s.leftHandPressTimes,
+                    rightHandPressTimes = s.rightHandPressTimes
+                }).ToList();
+            }
+            else
+            {
+                p.techniqueSegments = new List<TechniqueSegment>();
+            }
         }
 
 #if DEBUG
@@ -1388,7 +1410,9 @@ namespace ADOFAIMacro
                 var config = LevelTechniqueManager.GetCurrentLevelConfig();
                 if (hasConfig && config != null)
                 {
-                    return string.Format(LocalizationManager.Get("tech.level_config_has_with_name"), levelName, config.name);
+                    int segCount = config.techniqueSegments?.Count ?? 0;
+                    return string.Format(LocalizationManager.Get("tech.level_config_has_with_name"), levelName, config.name) +
+                           $" (segments: {segCount})";
                 }
 
                 return string.Format(LocalizationManager.Get(key), levelName);
