@@ -973,7 +973,6 @@ namespace ADOFAIMacro.Macro
             int    nowD    = 0;
             int    cHand   = (Main.Settings.TechniqueHandPreference == 0) ? -1 : 1;
             int    mult    = 0;
-            double changeTol = 0;
 
             var mCnt    = new long[16];
             var mCntPre = new long[16];
@@ -1001,21 +1000,6 @@ namespace ADOFAIMacro.Macro
 
                 double pLen = 60.0 / (nowBpm * Math.Pow(2, mult)) / 2.0;
                 if (pLen < 1e-9) pLen = 1e-9;
-
-                if (changeTol > 1e-6 && nowD < total)
-                {
-                    int tryCnt = CountEventsInRange(evTime, nowD, nowT + pLen * (0.995 - changeTol));
-                    if (tryCnt > 0)
-                    {
-                        double nextT = evTime[nowD + tryCnt];
-                        double diff  = Math.Abs(nextT - nowT - pLen);
-                        if (diff > pLen * 0.001 && diff < pLen * changeTol)
-                        {
-                            double span = nextT - evTime[nowD];
-                            if (span > 1e-9) { nowBpm *= pLen / span; continue; }
-                        }
-                    }
-                }
 
                 int cnt   = CountEventsInRange(evTime, nowD, nowT + pLen * 0.995);
                 int csH   = (cHand == 1) ? 1 : 0;
