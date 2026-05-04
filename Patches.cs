@@ -344,8 +344,8 @@ namespace ADOFAIMacro
         }
 
         // 修改 CountValidKeysPressed 补丁添加黑白名单逻辑
-        [HarmonyPatch(typeof(scrController), "CountValidKeysPressed")]
-        public static class scrController_CountValidKeysPressed_Patch
+        [HarmonyPatch(typeof(scrPlayer), "CountValidKeysPressed")]
+        public static class scrPlayer_CountValidKeysPressed_Patch
         {
             private static int validKeys;
 
@@ -364,7 +364,7 @@ namespace ADOFAIMacro
             private static int CountValidKeysPressed()
             {
                 int num = 0;
-                scrController instance = scrController.instance;
+                scrPlayer instance = ADOBase.controller.chosenPlanet.player;
                 instance.keyLimiterOverCounter = 0;
 
                 foreach (AnyKeyCode anyKeyCode in RDInput.GetMainPressKeys())

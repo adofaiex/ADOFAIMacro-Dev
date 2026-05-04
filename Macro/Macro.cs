@@ -243,7 +243,7 @@ namespace ADOFAIMacro.Macro
             if (Volatile.Read(ref _workerNeedsHit) != 0)
             {
                 int hitCount = Interlocked.Exchange(ref _workerNeedsHit, 0);
-                for (int h = 0; h < hitCount; h++) controller!.Hit(false);
+                for (int h = 0; h < hitCount; h++) controller.chosenPlanet.player!.Hit(false);
             }
 
 #if DEBUG
@@ -738,7 +738,7 @@ namespace ADOFAIMacro.Macro
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
         private static double GetAdviceBpm(double limit)
         {
-            double bpm = (double)(conductor!.bpm * ADOBase.controller.speed);
+            double bpm = (double)(conductor!.bpm * ADOBase.controller.playerOne.planetarySystem.speed);
             while (bpm > limit) bpm /= 2.0;
             while (bpm <= limit / 2.0) bpm *= 2.0;
             return bpm;
@@ -877,7 +877,7 @@ namespace ADOFAIMacro.Macro
                     if (TechniqueSimulator.BuildHitEvents(
                             [.. evTime], [.. evPress], [.. evFloor],
                             total,
-                            conductor!.bpm, ADOBase.controller.speed,
+                            conductor!.bpm, ADOBase.controller.playerOne.planetarySystem.speed,
                             out var nativeEvents))
                     {
                         _hitEvents = nativeEvents;
