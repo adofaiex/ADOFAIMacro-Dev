@@ -1,5 +1,5 @@
 param(
-    [string]$Remote = "ADOFAIMacro-Dev",
+    [string]$Remote = "origin",
     [string]$Branch = "master",
     [int]$MaxRetries = 800
 )
