@@ -17,14 +17,6 @@ namespace ADOFAIMacro.Macro
         [DllImport("winmm.dll")] private static extern uint timeBeginPeriod(uint p);
         [DllImport("winmm.dll")] private static extern uint timeEndPeriod(uint p);
 
-        // ══════════════════════════════════════════════════════
-        //  环形缓冲区（保留，供未来批量统计等用途；热路径不再走此路径）
-        //  8192 而非 4096：更大的缓冲区在突发场景下减少丢弃
-        // ══════════════════════════════════════════════════════
-        private const int BUFFER_SIZE = 8192;
-        private const int BUFFER_MASK = BUFFER_SIZE - 1;
-
-        private static readonly SkyHookEvent[] _ring = new SkyHookEvent[BUFFER_SIZE];
 
         private static volatile int _writeIndex = 0;
         private static volatile int _readIndex = 0;
@@ -155,51 +147,6 @@ namespace ADOFAIMacro.Macro
                 InputSystem.ClearQueue();
 
             Macro.Log("[InputSystem] 队列已清空");
-        }
-
-        // ══════════════════════════════════════════════════════
-        //  保留的 EnqueueEvent / EnqueueEvents
-        //
-        //  说明：热路径（Macro.SendKey）已改为 DirectPushKey，
-        //  这两个方法不再被主流程调用，但保留接口供外部扩展或调试使用。
-        //  若确认不需要可安全删除。
-        // ══════════════════════════════════════════════════════
-        [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        public static void EnqueueEvent(SkyHookEvent evt)
-        {
-            if (!_isInitialized) return;
-
-            int write = _writeIndex;
-            int read = _readIndex;
-
-            if ((write - read) >= BUFFER_SIZE)
-            {
-                Interlocked.Increment(ref _totalDropped);
-                return;
-            }
-
-            _ring[write & BUFFER_MASK] = evt;
-            Interlocked.Increment(ref _writeIndex);
-        }
-
-        [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        public static void EnqueueEvents(SkyHookEvent[] events)
-        {
-            if (!_isInitialized || events == null || events.Length == 0) return;
-
-            int write = _writeIndex;
-            int read = _readIndex;
-            int space = BUFFER_SIZE - (write - read);
-            int count = Math.Min(events.Length, space);
-
-            int dropped = events.Length - count;
-            if (dropped > 0)
-                Interlocked.Add(ref _totalDropped, dropped);
-
-            for (int i = 0; i < count; i++)
-                _ring[(write + i) & BUFFER_MASK] = events[i];
-
-            Interlocked.Add(ref _writeIndex, count);
         }
 
         // ══════════════════════════════════════════════════════

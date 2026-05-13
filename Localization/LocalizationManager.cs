@@ -210,7 +210,7 @@ namespace ADOFAIMacro.Localization
             {
                 if (protectedTrans.TryGetValue(_currentLanguage, out string protectedValue))
                 {
-                    UnityEngine.Debug.Log($"[Localization] Key '{key}' is protected, returning hardcoded translation");
+                    //UnityEngine.Debug.Log($"[Localization] Key '{key}' is protected, returning hardcoded translation");
                     if (args.Length > 0)
                         return string.Format(protectedValue, args);
                     return protectedValue;
