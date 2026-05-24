@@ -557,19 +557,29 @@ namespace ADOFAIMacro
             [HarmonyPrefix]
             public static bool Prefix(SkyHookEvent ev)
             {
-                scrController instance = scrController.instance;
-                if (!instance) return true;
+                // 1. 先安全检查：游戏是否已完全启动且未在卸载场景
+                if (!Application.isPlaying || scrController.instance == null)
+                    return true;
+
+                scrController instance = scrController.instance; // 现在可以安全访问
+
+                // 2. 额外检查实例有效性（Unity 对象可能被销毁）
+                if (instance == null || !instance.gameObject.activeInHierarchy)
+                    return true;
 
                 // KeyReleased(=1) 和 ESC 永远放行
-                if (ev.Type == SkyHook.EventType.KeyReleased || ev.Key == 27) return true;
+                if (ev.Type == SkyHook.EventType.KeyReleased || ev.Key == 27)
+                    return true;
 
                 // 未开启过滤 / 暂停 / 不在游戏世界 → 放行
-                if (!Main.Settings.EnableKeyFilter) return true;
-                if (instance.paused || !instance.gameworld) return true;
+                if (!Main.Settings.EnableKeyFilter)
+                    return true;
+                if (instance.paused || !instance.gameworld)
+                    return true;
 
                 // 只在 PlayerControl 状态下过滤
-                Enum state = instance.stateMachine.GetState();
-                if (!(state is States s && s == States.PlayerControl)) return true;
+                if (!(instance.stateMachine.GetState() is States s && s == States.PlayerControl))
+                    return true;
 
                 bool allowed = IsAsyncKeyAllowed(ev.Key);
                 if (!allowed)
