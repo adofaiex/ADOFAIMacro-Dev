@@ -25,6 +25,20 @@ namespace ADOFAIMacro
         private static int _lastAsyncFilterMode = 0;
         private static bool _lastAsyncEnableFilter = false;
 
+        private static readonly WeakReference<scrController> _cachedControllerRef = new WeakReference<scrController>(null);
+
+        private static scrController CachedController
+        {
+            get
+            {
+                scrController ctrl;
+                if (_cachedControllerRef.TryGetTarget(out ctrl) && ctrl != null)
+                    return ctrl;
+                return null;
+            }
+            set => _cachedControllerRef.SetTarget(value);
+        }
+
         [HarmonyPatch(typeof(scrController), "PlayerControl_Update")]
         public static class Patch_PlayerControl_Update
         {
@@ -343,6 +357,16 @@ namespace ADOFAIMacro
             _lastFilterMode = Main.Settings.FilterMode;
         }
 
+        [HarmonyPatch(typeof(scrController), "Awake")]
+        private static class Patch_Awake
+        {
+            [HarmonyPostfix]
+            public static void Postfix(scrController __instance)
+            {
+                CachedController = __instance;
+            }
+        }
+
         // 修改 CountValidKeysPressed 补丁添加黑白名单逻辑
         [HarmonyPatch(typeof(scrPlayer), "CountValidKeysPressed")]
         public static class scrPlayer_CountValidKeysPressed_Patch
@@ -364,7 +388,7 @@ namespace ADOFAIMacro
             private static int CountValidKeysPressed()
             {
                 int num = 0;
-                scrPlayer instance = ADOBase.controller.chosenPlanet.player;
+                scrPlayer instance = ADOBase.controller?.chosenPlanet?.player;
                 instance.keyLimiterOverCounter = 0;
 
                 foreach (AnyKeyCode anyKeyCode in RDInput.GetMainPressKeys())
@@ -557,28 +581,25 @@ namespace ADOFAIMacro
             [HarmonyPrefix]
             public static bool Prefix(SkyHookEvent ev)
             {
-                // 1. 先安全检查：游戏是否已完全启动且未在卸载场景
-                if (!Application.isPlaying || scrController.instance == null)
-                    return true;
+                // 1. 基本检查
+                if (!Application.isPlaying) return true;
 
-                scrController instance = scrController.instance; // 现在可以安全访问
+                // 2. 从弱引用安全获取控制器（防止销毁后访问）
+                scrController ctrl = CachedController;
+                if (ctrl == null) return true;          // 未初始化或已销毁
 
-                // 2. 额外检查实例有效性（Unity 对象可能被销毁）
-                if (instance == null || !instance.gameObject.activeInHierarchy)
-                    return true;
+                // 3. 额外检查对象是否已销毁（双重保险）
+                if (!ctrl || !ctrl.gameObject.activeInHierarchy) return true;
 
-                // KeyReleased(=1) 和 ESC 永远放行
-                if (ev.Type == SkyHook.EventType.KeyReleased || ev.Key == 27)
-                    return true;
+                // 4. 无条件放行
+                if (ev.Type == SkyHook.EventType.KeyReleased || ev.Key == 27) return true;
 
-                // 未开启过滤 / 暂停 / 不在游戏世界 → 放行
-                if (!Main.Settings.EnableKeyFilter)
-                    return true;
-                if (instance.paused || !instance.gameworld)
-                    return true;
+                // 5. 功能过滤条件
+                if (!Main.Settings.EnableKeyFilter) return true;
+                if (ctrl.paused || !ctrl.gameworld) return true;
 
-                // 只在 PlayerControl 状态下过滤
-                if (!(instance.stateMachine.GetState() is States s && s == States.PlayerControl))
+                // 6. 状态检查
+                if (!(ctrl.stateMachine.GetState() is States s && s == States.PlayerControl))
                     return true;
 
                 bool allowed = IsAsyncKeyAllowed(ev.Key);
