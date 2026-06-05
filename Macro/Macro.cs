@@ -941,7 +941,7 @@ namespace ADOFAIMacro.Macro
 
 #if DEBUG
         // ═══════════════════════════════════════════════════════════════
-        //  C# 回退路径（DEBUG only）
+        //  C# 回退路径（Release 模式下也作为 DLL 加载失败的备份）
         // ═══════════════════════════════════════════════════════════════
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
         private static void BuildCSHarpTechniqueHitEvents()
@@ -1077,6 +1077,28 @@ namespace ADOFAIMacro.Macro
                     canMulti = 0;
                     continue;
                 }
+
+                /*
+
+                // 非二进制分片检测（三连音/五连音自适应）
+                if (cnt > 0 && nowD + cnt < total)
+                {
+                    double nextEvTime = evTime[nowD + cnt];
+                    double boundary   = nowT + pLen;
+                    double diff       = nextEvTime - boundary;
+                    if (diff > pLen * 0.001 && diff < pLen * 0.50)
+                    {
+                    // 预测不调整时下一个分片的事件数
+                    // 注意 0.995 只乘在 pLen 上（与下次循环的计数范围一致）
+                    int nextCnt = CountEventsInRange(evTime, nowD + cnt, boundary + pLen * 0.995);
+                        // 只有当下一个分片不满（手分配不均）时才调整
+                        if (nextCnt < cnt)
+                        {
+                            pLen = nextEvTime - nowT;
+                        }
+                    }
+                }
+                */
 
                 Array.Copy(mCnt, mCntPre, 16);
                 pieces.Add(new PieceInfo(cnt, csH, pLen, nowT, nowT + pLen, nowD, mult));

@@ -278,6 +278,24 @@ HitEvent* BuildTechniqueHitEvents(
                 continue;
             }
 
+            /*
+            // ── 非二进制分片检测（三连音/五连音自适应）──
+            if (cnt > 0 && nowD + cnt < eventCount) {
+                double nextEvTime = evTime[nowD + cnt];
+                double boundary     = nowT + pLen;
+                double diff         = nextEvTime - boundary;
+                if (diff > pLen * 0.001 && diff < pLen * 0.50) {
+                    // 预测不调整时下一个分片的事件数
+                    // 注意 0.995 只乘在 pLen 上（与下次循环的计数范围一致）
+                    int nextCnt = CountEventsInRange(evTime, nowD + cnt, boundary + pLen * 0.995);
+                    // 只有当下一个分片不满（手分配不均）时才调整
+                    if (nextCnt < cnt) {
+                        pLen = nextEvTime - nowT;
+                    }
+                }
+            }
+            */
+
             // 提交时间片
             memcpy(mCntPre, mCnt, sizeof(mCnt));
             pieces.emplace_back(cnt, csH, pLen, nowT, nowT + pLen, nowD, mult);
