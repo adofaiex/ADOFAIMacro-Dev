@@ -173,7 +173,7 @@ namespace ADOFAIMacro.Macro
                 GetInputModeFunc = GetDelegate<GetInputModeDelegate>("GetInputMode");
                 GetAvailableModesFunc = GetDelegate<GetAvailableModesDelegate>("GetAvailableModes");
 
-                // 新版 C++ 的环形缓冲区固定 8192，maxQueueSize 参数已忽略
+                // C++ 环形缓冲区固定 1024，maxQueueSize 参数已忽略
                 // 传 0 即可，保持向后兼容
                 int result = InitializeFunc(0);
                 Console.WriteLine($"[InputSystem] 初始化结果: {result}");

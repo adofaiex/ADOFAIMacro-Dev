@@ -527,7 +527,7 @@ namespace ADOFAIMacro.Macro
             if (string.IsNullOrWhiteSpace(input)) return fallback;
 
             var result = new List<byte>();
-            foreach (var part in input!.Split(',', (char)StringSplitOptions.RemoveEmptyEntries))
+            foreach (var part in input!.Split([','], StringSplitOptions.RemoveEmptyEntries))
             {
                 var name = part.Trim().ToUpperInvariant();
                 if (string.IsNullOrEmpty(name)) continue;
@@ -557,7 +557,7 @@ namespace ADOFAIMacro.Macro
             var result = new double[keyCount];
             for (int i = 0; i < result.Length; i++) result[i] = 0.8;
 
-            var parts = input!.Split(',', (char)StringSplitOptions.RemoveEmptyEntries);
+            var parts = input!.Split([','], StringSplitOptions.RemoveEmptyEntries);
             for (int i = 0; i < Math.Min(parts.Length, result.Length); i++)
                 if (double.TryParse(parts[i].Trim(),
                         System.Globalization.NumberStyles.Any,
@@ -586,7 +586,7 @@ namespace ADOFAIMacro.Macro
             {
                 string group = n < groups.Length ? groups[n] : groups[groups.Length - 1];
                 var indices = new List<int>();
-                foreach (var p in group.Split(',', (char)StringSplitOptions.RemoveEmptyEntries))
+                foreach (var p in group.Split([','], StringSplitOptions.RemoveEmptyEntries))
                     if (int.TryParse(p.Trim(), out int idx))
                         indices.Add(Math.Max(0, Math.Min(idx - 1, keyCount - 1)));
                 if (indices.Count > 0) result[n] = [.. indices];
