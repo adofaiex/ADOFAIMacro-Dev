@@ -728,6 +728,20 @@ namespace ADOFAIMacro.Macro
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
         private static void ParseTechniqueConfig()
         {
+            // 优先使用关卡特定配置（不会覆盖 Settings 中的用户设置）
+            var levelConfig = LevelTechniqueManager.GetCurrentLevelConfig();
+            if (levelConfig != null)
+            {
+                _techLeftKeys = ParseTechKeyList(levelConfig.leftHandKeys);
+                _techRightKeys = ParseTechKeyList(levelConfig.rightHandKeys);
+                _techKeyOrders[0] = ParseTechOrders(levelConfig.leftHandOrders, _techLeftKeys.Length);
+                _techKeyOrders[1] = ParseTechOrders(levelConfig.rightHandOrders, _techRightKeys.Length);
+                _techPressDur[0] = ParseTechPressTimes(levelConfig.leftHandPressTimes, _techLeftKeys.Length);
+                _techPressDur[1] = ParseTechPressTimes(levelConfig.rightHandPressTimes, _techRightKeys.Length);
+                _currentSegments = levelConfig.techniqueSegments ?? new List<Settings.TechniqueSegment>();
+                return;
+            }
+
             var s = Main.Settings;
             _techLeftKeys = ParseTechKeyList(s.TechLeftHandKeys);
             _techRightKeys = ParseTechKeyList(s.TechRightHandKeys);
@@ -908,15 +922,27 @@ namespace ADOFAIMacro.Macro
             {
                 try
                 {
-                    var currentProfile = Main.Settings.TechniqueProfiles[Main.Settings.SelectedTechniqueProfileIndex];
-                    var segments = currentProfile.techniqueSegments.ToArray();
+                    var levelConfig = LevelTechniqueManager.GetCurrentLevelConfig();
+                    Settings.TechniqueSegment[] segments;
+                    int handPref;
+                    if (levelConfig != null)
+                    {
+                        segments = levelConfig.techniqueSegments?.ToArray() ?? [];
+                        handPref = levelConfig.handPreference;
+                    }
+                    else
+                    {
+                        var currentProfile = Main.Settings.TechniqueProfiles[Main.Settings.SelectedTechniqueProfileIndex];
+                        segments = currentProfile.techniqueSegments.ToArray();
+                        handPref = Main.Settings.TechniqueHandPreference;
+                    }
 
                     TechniqueSimulator.UpdateConfig(
                         _techLeftKeys, _techRightKeys,
                         _techKeyOrders[0], _techKeyOrders[1],
                         _techPressDur[0], _techPressDur[1],
                         Main.Settings.TechniqueBpmLimit,
-                        Main.Settings.TechniqueHandPreference,
+                        handPref,
                         segments);
 
                     if (TechniqueSimulator.BuildHitEvents(
@@ -1016,7 +1042,8 @@ namespace ADOFAIMacro.Macro
         {
             double nowT    = 0.0;
             int    nowD    = 0;
-            int    cHand   = (Main.Settings.TechniqueHandPreference == 0) ? -1 : 1;
+            var    _levelTechHandPref = LevelTechniqueManager.GetCurrentLevelConfig()?.handPreference ?? Main.Settings.TechniqueHandPreference;
+            int    cHand   = (_levelTechHandPref == 0) ? -1 : 1;
             int    mult    = 0;
 
             var mCnt    = new long[16];
@@ -1053,7 +1080,7 @@ namespace ADOFAIMacro.Macro
                 var   ec   = GetEffectiveConfig(curFloorIdx);
                 int   maxK = (csH == 0) ? ec.LeftKeys.Length : ec.RightKeys.Length;
 
-                int  mainHand  = (Main.Settings.TechniqueHandPreference == 0) ? -1 : 1;
+                int  mainHand  = (_levelTechHandPref == 0) ? -1 : 1;
                 bool isOffHand = (cHand != mainHand);
 
                 if (cnt > maxK)

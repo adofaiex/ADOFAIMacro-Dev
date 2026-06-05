@@ -87,7 +87,6 @@ namespace ADOFAIMacro.Macro
                 if (config != null)
                 {
                     _loadedConfigs[levelPath] = config;
-                    ApplyConfigToSettings(config);
                     Macro.Log($"[LevelTechnique] 已加载关卡配置: {config.name} ({config.techniqueSegments?.Count ?? 0} 个分段)");
                 }
             }
@@ -284,6 +283,10 @@ namespace ADOFAIMacro.Macro
             {
                 _loadedConfigs.Remove(_lastCheckedLevelPath!); // _lastCheckedLevelPath 已检查过非 null
                 LoadConfigForLevel(_lastCheckedLevelPath!);
+
+                // 手动加载也应用到 Settings，让用户能在 UI 中看到配置项
+                if (_loadedConfigs.TryGetValue(_lastCheckedLevelPath!, out var config) && config != null)
+                    ApplyConfigToSettings(config);
             }
         }
 
