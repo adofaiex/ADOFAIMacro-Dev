@@ -57,6 +57,7 @@
     "other.switch_nofaill": "游戏允许切换到失败模式",
     "other.switch_judgement": "游戏中允许切换判定",
     "other.lock_level_editor": "锁定关卡编辑器（防止误操作）",
+    "other.block_input_unfocused": "窗口未激活时阻止按键输入",
     "other.tip_enter_key": "提示：可直接输入字母、数字、F1-F12或特殊键名（如SPACE、ENTER），也可输入十六进制代码（如0x52）",
     "author.email_chinese": "hitmargin@qq.com",
     "author.email_english": "hitmargin@Outlook.com",

@@ -57,6 +57,7 @@
     "other.switch_nofaill": "The game allows switching to failure mode",
     "other.switch_judgement": "Switching Judement is allowed in the game",
     "other.lock_level_editor": "Lock Level Editor (prevent misoperation)",
+    "other.block_input_unfocused": "Block key input when window is unfocused",
     "other.tip_enter_key": "Tip: Enter letters, numbers, F1-F12, or special keys (like SPACE, ENTER), or hex code (e.g., 0x52)",
     "author.email_chinese": "hitmargin@qq.com",
     "author.email_english": "hitmargin@Outlook.com",

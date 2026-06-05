@@ -366,3 +366,7 @@ GameCode/
 TechniqueSimulator.dll
 InputSystem.dll
 ADOFAIMacro.dll
+
+# Agent instructions (project-specific LLM context)
+CLAUDE.md
+AGENTS.md

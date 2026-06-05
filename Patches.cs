@@ -128,6 +128,8 @@ namespace ADOFAIMacro
                 if (Main.Settings.SimulateKeyPress && Main.Settings.SkyHookMode && InputSystem.IsInitialized)
                 {
                     InputSystem.SendKeyDirect((byte)Main.Settings.DeathKeyCode, true);
+                    yield return new WaitForSeconds(0.05f);
+                    InputSystem.KeyUpDirect((byte)Main.Settings.DeathKeyCode);
                 }
             }
         }
@@ -371,18 +373,11 @@ namespace ADOFAIMacro
         [HarmonyPatch(typeof(scrPlayer), "CountValidKeysPressed")]
         public static class scrPlayer_CountValidKeysPressed_Patch
         {
-            private static int validKeys;
-
             [HarmonyPrefix]
-            public static void Prefix()
+            public static bool Prefix(ref int __result)
             {
-                validKeys = CountValidKeysPressed();
-            }
-
-            [HarmonyPostfix]
-            public static void Postfix(ref int __result)
-            {
-                __result = validKeys;
+                __result = CountValidKeysPressed();
+                return false;
             }
 
             private static int CountValidKeysPressed()

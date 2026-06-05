@@ -112,6 +112,9 @@ namespace ADOFAIMacro.Macro
         private static volatile int _workerLastTriggeredFloor = -1;
         private static volatile int _workerNeedsHit = 0;
         private static volatile int _resetVersion = 0;
+#if DEBUG
+        private static volatile bool _debugWorkerInitLogged = false;
+#endif
 
         // ─────────────────────────────────────────────
         //  工作线程控制
@@ -158,6 +161,8 @@ namespace ADOFAIMacro.Macro
         private static extern uint SendInput(uint nInputs, IntPtr pInputs, int cbSize);
         [DllImport("user32.dll")]
         private static extern uint MapVirtualKey(uint uCode, uint uMapType);
+        [DllImport("user32.dll")]
+        private static extern IntPtr GetForegroundWindow();
         [DllImport("Kernel32.dll")]
         private static extern bool QueryPerformanceCounter(out long lpPerformanceCount);
         [DllImport("Kernel32.dll")]
@@ -170,6 +175,7 @@ namespace ADOFAIMacro.Macro
         private static readonly long perfFrequency;
         private static readonly bool usePerfCounter;
         private static readonly byte[] scanCodeCache = new byte[256];
+        private static IntPtr _gameWindowHandle = IntPtr.Zero;
 
         // ─────────────────────────────────────────────
         //  按键名称 → VK 映射（internal，供 TechniqueSimulator 复用）
@@ -242,8 +248,11 @@ namespace ADOFAIMacro.Macro
 
             if (Volatile.Read(ref _workerNeedsHit) != 0)
             {
-                int hitCount = Interlocked.Exchange(ref _workerNeedsHit, 0);
-                for (int h = 0; h < hitCount; h++) controller.chosenPlanet.player!.Hit(false);
+                if (!Main.Settings.BlockInputWhenUnfocused || IsGameWindowFocused())
+                {
+                    int hitCount = Interlocked.Exchange(ref _workerNeedsHit, 0);
+                    for (int h = 0; h < hitCount; h++) controller.chosenPlanet.player!.Hit(false);
+                }
             }
 
 #if DEBUG
@@ -283,7 +292,8 @@ namespace ADOFAIMacro.Macro
             if (!_workerStarted) { _workerStarted = true; _startSignal.Release(); }
 
 #if DEBUG
-            Log($"[Macro-Main] 锚点已发布 pitch={pitch} lastFloor={lastFloor}");
+            Log($"[Macro-Main] ANCHOR dspRef={_dspTimeRef:F6} songRef={_songPosRef:F6} dspSnap={dspSnap:F6} pitch={pitch:F4} qpcSnap={qpcSnap} lastFloor={lastFloor}");
+            _debugWorkerInitLogged = false;
 #endif
 
             // Hotkey handling (merged from HandleInput to reduce call overhead)
@@ -346,6 +356,14 @@ namespace ADOFAIMacro.Macro
                     double dspSnapshot = anchor.dspSnapshot;
                     long qpcSnapshot = anchor.qpcSnapshot;
 
+#if DEBUG
+                    if (!_debugWorkerInitLogged)
+                    {
+                        Log($"[Macro-Worker] EXTRACT (init) pitch={pitch:F4} songPosRef={songPosRef:F6} dspTimeRef={dspTimeRef:F6} dspSnapshot={dspSnapshot:F6} qpcSnapshot={qpcSnapshot} evCount={evCount}");
+                        _debugWorkerInitLogged = true;
+                    }
+#endif
+
                     int hitCount = 0;
                     bool triggered = false;
 
@@ -361,10 +379,16 @@ namespace ADOFAIMacro.Macro
                     {
                         if (Volatile.Read(ref _resetVersion) != localResetVer) goto WriteBack;
 
+                        bool hp = _cachedHighPrecision;
                         long qpcNow = GetRawTicks();
-                        double elapsed = (double)(qpcNow - qpcSnapshot) * perfFreqInv;
+                        double elapsed = (double)(qpcNow - qpcSnapshot) * (hp ? 1e-7 : perfFreqInv);
                         double audioNow = songPosRef + (dspSnapshot + elapsed - dspTimeRef) * pitch;
                         double triggerAt = events[i].TriggerTime + timeOffset;
+
+#if DEBUG
+                        if (i < 5 || Math.Abs(triggerAt - audioNow) > 0.5)
+                            Log($"[Macro-Worker] TICK i={i} audioNow={audioNow:F6} triggerAt={triggerAt:F6} diff={triggerAt - audioNow:F6} elapsed={elapsed:F6}");
+#endif
 
                         if (triggerAt > audioNow)
                         {
@@ -443,6 +467,14 @@ namespace ADOFAIMacro.Macro
                             evCount = anchor.hitEventCount;
                             dspSnapshot = anchor.dspSnapshot;
                             qpcSnapshot = anchor.qpcSnapshot;
+                            pitch = anchor.pitch;
+                            songPosRef = anchor.songPosRef;
+                            dspTimeRef = anchor.dspTimeRef;
+                            timeOffset = anchor.timeOffset;
+                            simulateKey = anchor.simulateKeyPress;
+#if DEBUG
+                            Log($"[Macro-Worker] EXTRACT (refresh) pitch={pitch:F4} songPosRef={songPosRef:F6} dspTimeRef={dspTimeRef:F6} dspSnapshot={dspSnapshot:F6} qpcSnapshot={qpcSnapshot}");
+#endif
                         }
                     }
 
@@ -508,9 +540,22 @@ namespace ADOFAIMacro.Macro
             _pendingKey = 0; _isKeyDown = false;
         }
 
+        private static bool IsGameWindowFocused()
+        {
+            if (_gameWindowHandle == IntPtr.Zero)
+            {
+                try { _gameWindowHandle = System.Diagnostics.Process.GetCurrentProcess().MainWindowHandle; }
+                catch { _gameWindowHandle = (IntPtr)(-1); }
+            }
+            if (_gameWindowHandle == (IntPtr)(-1)) return true;
+            return GetForegroundWindow() == _gameWindowHandle;
+        }
+
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
         private static unsafe void SendKey(byte keyCode, bool isDown)
         {
+            if (Main.Settings.BlockInputWhenUnfocused && !IsGameWindowFocused()) return;
+
             if (_cachedSkyHookMode)
             {
                 int r = AsyncInputManager.DirectPushKey(keyCode, isDown);
@@ -1247,6 +1292,12 @@ namespace ADOFAIMacro.Macro
         {
             if (_workerRunning && _workerThread?.IsAlive == true) return;
 
+            if (_workerThread != null)
+            {
+                _workerThread.Join();
+                _workerThread = null;
+            }
+
             _workerRunning = true;
             _workerStarted = false;
             _workerThread = new Thread(WorkerLoop)
@@ -1264,7 +1315,6 @@ namespace ADOFAIMacro.Macro
         {
             if (!_workerRunning) return;
 
-            if (skyHookInitialized) _cachedSkyHookMode = false;
             _workerRunning = false;
 
             if (!_workerStarted)
@@ -1274,10 +1324,11 @@ namespace ADOFAIMacro.Macro
                 catch (SemaphoreFullException) { }
             }
 
-            _workerThread?.Join(50);
+            _workerThread?.Join(500);
 
             if (skyHookInitialized)
             {
+                _cachedSkyHookMode = false;
                 AsyncInputManager.Stop();
                 skyHookInitialized = false;
             }

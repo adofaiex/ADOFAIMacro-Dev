@@ -257,6 +257,7 @@ namespace ADOFAIMacro
         public bool ChangeNoFaillInPlay = false;
         public bool ChangeJudementInPlay = false;
         public bool LockLevelEditor = false;
+        public bool BlockInputWhenUnfocused = true;
 
         // ─────────────────────────────────────────────
         //  手法模拟全局设置
@@ -844,6 +845,9 @@ namespace ADOFAIMacro
                 LockLevelEditor = newLock;
                 if (ADOBase.sceneName == GCNS.sceneEditor) ADOBase.controller.Restart();
             }
+
+            BlockInputWhenUnfocused = UIUtils.M3Switch(BlockInputWhenUnfocused,
+                Localization.LocalizationManager.Get("other.block_input_unfocused"));
             GUILayout.EndVertical();
         }
 
