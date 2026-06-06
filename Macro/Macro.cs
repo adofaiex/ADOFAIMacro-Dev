@@ -1036,6 +1036,19 @@ namespace ADOFAIMacro.Macro
         }
 
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        private static int FindSegmentIndex(int floorIdx)
+        {
+            if (_currentSegments == null) return -1;
+            for (int i = 0; i < _currentSegments.Count; i++)
+            {
+                var seg = _currentSegments[i];
+                if (floorIdx >= seg.startFloor && floorIdx <= seg.endFloor)
+                    return i;
+            }
+            return -1;
+        }
+
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
         private static void BuildPieces(
             List<double> evTime, List<int> evPress, List<int> evFloor,
             int total, List<PieceInfo> pieces)
@@ -1053,19 +1066,25 @@ namespace ADOFAIMacro.Macro
 
             float  lastSegLimit = GetSegmentBpmLimit(evFloor[0]);
             double nowBpm       = GetAdviceBpm(lastSegLimit);
+            int    lastSegIdx   = FindSegmentIndex(evFloor[0]);
 
             while (nowD < total)
             {
                 int   curFloorIdx = evFloor[nowD];
+                int   curSegIdx   = FindSegmentIndex(curFloorIdx);
                 float curSegLimit = GetSegmentBpmLimit(curFloorIdx);
 
-                if (Math.Abs(curSegLimit - lastSegLimit) > 1e-6f)
+                if (curSegIdx != lastSegIdx)
                 {
-                    mult = 0;
+                    cHand   = (_levelTechHandPref == 0) ? -1 : 1;
+                    mult    = 0;
                     Array.Clear(mCnt,    0, mCnt.Length);
                     Array.Clear(mCntPre, 0, mCntPre.Length);
+                    canMulti  = 0;
+                    needBack  = false;
                     lastSegLimit = curSegLimit;
                     nowBpm       = GetAdviceBpm(curSegLimit);
+                    lastSegIdx   = curSegIdx;
                 }
 
                 if (pieces.Count > total * 64) break;
@@ -1157,6 +1176,7 @@ namespace ADOFAIMacro.Macro
 
             bool          activeHold    = false;
             byte          activeHoldKey = 0;
+            int           lastSegIdxEvent = -2;
 
             for (int pcnt = 0; pcnt < pieces.Count - 1; pcnt++)
             {
@@ -1183,7 +1203,22 @@ namespace ADOFAIMacro.Macro
 
                     // 按当前事件的地板索引解析有效键位
                     int curFloor = (idx < evFloor.Count) ? evFloor[idx] : evFloor[evFloor.Count - 1];
-                    var ec       = GetEffectiveConfig(curFloor);
+
+                    // 段边界：释放活跃 hold 键
+                    int curSegIdx = FindSegmentIndex(curFloor);
+                    if (curSegIdx != lastSegIdxEvent)
+                    {
+                        if (activeHold && lastSegIdxEvent != -2)
+                        {
+                            output.Add(new HitEvent(t - 0.000001, 0, releaseOnly: true,
+                                isHoldRelated: true, releaseKeyCode: activeHoldKey));
+                            activeHold = false;
+                            activeHoldKey = 0;
+                        }
+                        lastSegIdxEvent = curSegIdx;
+                    }
+
+                    var ec = GetEffectiveConfig(curFloor);
 
                     byte[]   hK = (cur.Hand == 0) ? ec.LeftKeys        : ec.RightKeys;
                     int[][]  hO = (cur.Hand == 0) ? ec.LeftOrders       : ec.RightOrders;

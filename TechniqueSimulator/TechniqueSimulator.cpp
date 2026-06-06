@@ -45,7 +45,7 @@ struct EffectiveConfig {
     double bpmLimit;
 };
 
-static EffectiveConfig ResolveConfig(int floorIdx)
+static EffectiveConfig ResolveConfig(int floorIdx, int* outSegIdx = nullptr)
 {
     EffectiveConfig ec{};
     // 默认：全局配置
@@ -63,6 +63,7 @@ static EffectiveConfig ResolveConfig(int floorIdx)
     ec.rightPressTimes = g_config.rightPressTimes;
     ec.bpmLimit = g_config.bpmLimit;
 
+    int found = -1;
     for (int i = 0; i < g_config.segmentCount; i++) {
         auto& seg = g_config.segments[i];
         if (floorIdx >= seg.startFloor && floorIdx <= seg.endFloor) {
@@ -87,9 +88,11 @@ static EffectiveConfig ResolveConfig(int floorIdx)
                     ec.rightPressTimes = seg.rightPressTimes;
                 }
             }
+            found = i;
             break;
         }
     }
+    if (outSegIdx) *outSegIdx = found;
     return ec;
 }
 
@@ -211,9 +214,12 @@ HitEvent* BuildTechniqueHitEvents(
 
         // ── 初始阈值（取第一个事件所属分段）────────────────────
         double lastSegLimit = g_config.bpmLimit;
+        int    lastSegIdx   = -2;  // -2 = 未初始化
         if (g_config.segmentCount > 0 && eventCount > 0) {
-            auto ec0 = ResolveConfig(evFloor[0]);
+            int segIdx;
+            auto ec0 = ResolveConfig(evFloor[0], &segIdx);
             lastSegLimit = ec0.bpmLimit;
+            lastSegIdx   = segIdx;     // 首次不触发边界重置
         }
         double nowBpm = GetAdviceBpm(bpm, speed, lastSegLimit);
 
@@ -232,16 +238,21 @@ HitEvent* BuildTechniqueHitEvents(
         // ── 时间片划分 ────────────────────────────────────────
         while (nowD < eventCount) {
 
-            // 根据当前地板索引解析有效配置
-            auto ec = ResolveConfig(evFloor[nowD]);
+            // 根据当前地板索引解析有效配置及段索引
+            int curSegIdx;
+            auto ec = ResolveConfig(evFloor[nowD], &curSegIdx);
 
-            // 阈值变化时重置倍乘状态
-            if (fabs(ec.bpmLimit - lastSegLimit) > 1e-6) {
+            // 段边界：重置所有连续状态（手交替·倍乘·回溯·BPM）
+            if (curSegIdx != lastSegIdx) {
+                hand = (g_config.handPreference == 0) ? -1 : 1;
                 mult = 0;
                 memset(mCnt, 0, sizeof(mCnt));
                 memset(mCntPre, 0, sizeof(mCntPre));
+                canMulti = 0;
+                needBack = false;
                 lastSegLimit = ec.bpmLimit;
                 nowBpm = GetAdviceBpm(bpm, speed, lastSegLimit);
+                lastSegIdx = curSegIdx;
             }
 
             // 防止死循环
@@ -330,6 +341,7 @@ HitEvent* BuildTechniqueHitEvents(
 
         bool          activeHold = false;
         unsigned char activeHoldKey = 0;
+        int           lastSegIdxEvent = -2;
 
         for (size_t pcnt = 0; pcnt + 1 < pieces.size(); pcnt++) {
             auto& cur = pieces[pcnt];
@@ -359,7 +371,24 @@ HitEvent* BuildTechniqueHitEvents(
 
                 // ── 按当前地板解析有效键位配置 ──────────────────
                 int curFloor = (idx < (int)evFloor.size()) ? evFloor[idx] : evFloor.back();
-                auto ec = ResolveConfig(curFloor);
+
+                // ── 段边界：释放活跃 hold 键 ──
+                int curSegIdx;
+                auto ec = ResolveConfig(curFloor, &curSegIdx);
+                if (curSegIdx != lastSegIdxEvent) {
+                    if (activeHold && lastSegIdxEvent != -2) {
+                        HitEvent relEv = {};
+                        relEv.TriggerTime = t - 0.000001;
+                        relEv.KeyCode = 0;
+                        relEv.ReleaseOnly = TRUE;
+                        relEv.IsHoldRelated = TRUE;
+                        relEv.ReleaseKeyCode = activeHoldKey;
+                        output.push_back(relEv);
+                        activeHold = false;
+                        activeHoldKey = 0;
+                    }
+                    lastSegIdxEvent = curSegIdx;
+                }
 
                 const unsigned char* keys = (cur.hand == 0) ? ec.leftKeys : ec.rightKeys;
                 int                  keyCount = (cur.hand == 0) ? ec.leftKeyCount : ec.rightKeyCount;
