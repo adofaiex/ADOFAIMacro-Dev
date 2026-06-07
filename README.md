@@ -2,10 +2,10 @@
 
 [![C# 12.0](https://img.shields.io/badge/C%23-12.0-239120?logo=csharp&logoColor=white)](https://dotnet.microsoft.com/zh-cn/languages/csharp)
 [![.NET Framework 4.8.1](https://img.shields.io/badge/.NET%20Framework-4.8.1-512BD4?logo=dotnet&logoColor=white)](https://dotnet.microsoft.com/zh-cn/download/dotnet-framework/net481)
-[![Visual Studio 2026](https://img.shields.io/badge/Visual%20Studio-2026-5C2D91?logo=visualstudio&logoColor=white)](https://visualstudio.microsoft.com/zh-hans/)
-[![License](https://img.shields.io/github/license/2228293026/ADOFAIMacro-Dev?color=blue)](https://github.com/2228293026/ADOFAIMacro-Dev/blob/master/LICENSE.txt)
-[![License: GPL-3.0](https://img.shields.io/badge/License-GPL--3.0-blue.svg)](https://github.com/2228293026/ADOFAIMacro-Dev/blob/master/AsyncInputOptimize-LICENSE.txt)
-[![Downloads](https://img.shields.io/github/downloads/2228293026/ADOFAIMacro-Dev/total)](https://github.com/2228293026/ADOFAIMacro-Dev/releases)
+[![Visual Studio 2022](https://img.shields.io/badge/Visual%20Studio-2022-5C2D91?logo=visualstudio&logoColor=white)](https://visualstudio.microsoft.com/zh-hans/)
+[![License](https://img.shields.io/github/license/adofaiex/ADOFAIMacro-Dev?color=blue)](https://github.com/adofaiex/ADOFAIMacro-Dev/blob/master/LICENSE.txt)
+[![License: GPL-3.0](https://img.shields.io/badge/License-GPL--3.0-blue.svg)](https://github.com/adofaiex/ADOFAIMacro-Dev/blob/master/AsyncInputOptimize-LICENSE.txt)
+[![Downloads](https://img.shields.io/github/downloads/adofaiex/ADOFAIMacro-Dev/total)](https://github.com/adofaiex/ADOFAIMacro-Dev/releases)
 
 [English README](README.en.md)
 
@@ -32,18 +32,23 @@
 
 ADOFAIMacro 提供以下核心能力：
 
-- **自动宏触发**：根据谱面时间点自动触发输入。
-- **双触发路径**：
-  - 直接调用游戏逻辑层 `controller.Hit(false)`。
-  - 通过系统按键模拟触发（SendInput / SkyHook 相关路径）。
-- **SkyHook 异步输入模式**：适合高频输入场景，降低输入抖动带来的不稳定。
-- **时间偏移微调**：支持毫秒级偏移设置，并可在游戏中快速调参。
-- **死亡后自动按键（Death Key）**：可配置死亡后按键与触发延迟（依赖 SkyHook 模式）。
-- **按键过滤系统**：支持黑白名单与同步/异步按键列表，减少冲突输入。
-- **多语言 UI 系统**：基于 JSON 的键值翻译，支持中文/English，可轻松扩展其他语言。
-- **保护翻译机制**：特定 UI 文本（如宏开启提示）使用硬编码翻译，防止玩家通过修改 JSON 文件篡改。
-
----
+- **自动触发**：解析谱面地板时间戳，工作线程高精度定时发送按键。
+- **触发模式**：
+  - **判定触发**（`SimulateKeyPress = false`）：工作线程计数 → 主线程 `controller.Hit()`，跨帧传递。
+  - **按键模拟**（`SimulateKeyPress = true`）：工作线程直接调用 `SendKey()` 模拟系统级按键输入。
+- **宏按键模式**：
+  - **简单轮转**（`EnableTechniqueSimulation = false`）：`MacroKeys` 列表循环，附带 `_pendingKey` 防重叠。
+  - **手法模拟**（`EnableTechniqueSimulation = true`）：左右手交替、可配置按键与顺序、BPM 分片、长按处理、同键修正。
+- **手法模拟引擎**：C++ 原生 DLL（`TechniqueSimulator.dll`）实现核心分片与事件生成算法，热路径无托管分配；DEBUG 模式下提供 C# 回退。
+- **关卡特定手法配置**：为不同关卡保存独立的手法参数（按键、顺序、按压时长、BPM 分段等），进入自动加载。
+- **手法配置分段系统**：支持在单关卡的 floor 区间内覆盖按键/顺序/时长设置。
+- **时间偏移微调**：毫秒级偏移设置，游戏中 `Ctrl + 左右键` / `左右键` 实时调参。
+- **按键过滤系统**：黑白名单模式，同步（`KeyCode` 位图）与异步（VK 码数组）独立过滤。
+- **SkyHook 异步输入模式**：`NtUserInjectKeyboard` 等底层注入路径，适合高频/复杂环境。
+- **死亡后自动按键（Death Key）**：可配置死亡后按键与触发延迟，仅 SkyHook 模式生效。
+- **多语言 UI 系统**：JSON 键值翻译，支持中文/English，易扩展。
+- **窗口失焦拦截**：失焦时跳过按键发送，工作线程不暂停。
+- **双缓冲时间锚点**：无锁读写 TimeAnchor，主线程写 / 工作线程读的零等待同步。
 
 ---
 

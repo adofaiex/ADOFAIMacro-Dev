@@ -2,10 +2,10 @@
 
 [![C# 12.0](https://img.shields.io/badge/C%23-12.0-239120?logo=csharp&logoColor=white)](https://dotnet.microsoft.com/zh-cn/languages/csharp)
 [![.NET Framework 4.8.1](https://img.shields.io/badge/.NET%20Framework-4.8.1-512BD4?logo=dotnet&logoColor=white)](https://dotnet.microsoft.com/zh-cn/download/dotnet-framework/net481)
-[![Visual Studio 2026](https://img.shields.io/badge/Visual%20Studio-2026-5C2D91?logo=visualstudio&logoColor=white)](https://visualstudio.microsoft.com/zh-hans/)
-[![License](https://img.shields.io/github/license/2228293026/ADOFAIMacro?color=blue)](https://github.com/2228293026/ADOFAIMacro/blob/master/LICENSE.txt)
-[![License: GPL-3.0](https://img.shields.io/badge/License-GPL--3.0-blue.svg)](https://github.com/2228293026/ADOFAIMacro/blob/master/AsyncInputOptimize-LICENSE.txt)
-[![Downloads](https://img.shields.io/github/downloads/2228293026/ADOFAIMacro/total)](https://github.com/2228293026/ADOFAIMacro/releases)
+[![Visual Studio 2022](https://img.shields.io/badge/Visual%20Studio-2022-5C2D91?logo=visualstudio&logoColor=white)](https://visualstudio.microsoft.com/zh-hans/)
+[![License](https://img.shields.io/github/license/adofaiex/ADOFAIMacro-Dev?color=blue)](https://github.com/adofaiex/ADOFAIMacro-Dev/blob/master/LICENSE.txt)
+[![License: GPL-3.0](https://img.shields.io/badge/License-GPL--3.0-blue.svg)](https://github.com/adofaiex/ADOFAIMacro-Dev/blob/master/AsyncInputOptimize-LICENSE.txt)
+[![Downloads](https://img.shields.io/github/downloads/adofaiex/ADOFAIMacro-Dev/total)](https://github.com/adofaiex/ADOFAIMacro-Dev/releases)
 
 [中文说明](README.md)
 
@@ -32,18 +32,23 @@
 
 ADOFAIMacro includes the following core capabilities:
 
-- **Automatic macro triggering** based on chart/floor timing.
-- **Dual trigger paths**:
-  - Direct game logic call via `controller.Hit(false)`.
-  - Keyboard simulation through system APIs (SendInput / SkyHook-related path).
-- **SkyHook async input mode** for high-frequency scenarios with better stability under stress.
-- **Timing offset tuning** with in-game hotkey adjustment support.
-- **Death Key support** with configurable key and delay (SkyHook mode required).
-- **Key filtering system** with blacklist/whitelist logic for sync and async key sources.
-- **Multi-language UI system**: JSON-based key-value translations, currently supporting Chinese/English with easy extensibility.
-- **Protected translations**: Certain UI texts (e.g., macro enabled notification) use hardcoded translations, immune to JSON modifications.
-
----
+- **Automatic chart triggering**: Parses floor timestamps and sends key events with high-precision timing via a dedicated worker thread.
+- **Trigger modes**:
+  - **Direct hit** (`SimulateKeyPress = false`): Worker thread counts events → main thread calls `controller.Hit()` via `Interlocked.Add`, cross-frame delivery.
+  - **Key simulation** (`SimulateKeyPress = true`): Worker thread calls `SendKey()` directly for OS-level keyboard input.
+- **Macro key modes**:
+  - **Simple rotation** (`EnableTechniqueSimulation = false`): Cycles through `MacroKeys`, with `_pendingKey` overlap prevention.
+  - **Technique simulation** (`EnableTechniqueSimulation = true`): Left/right hand alternation, configurable key assignments and orders, BPM-based piece system, hold handling, same-key overlap correction.
+- **Technique simulation engine**: Core algorithm in native C++ DLL (`TechniqueSimulator.dll`) — hot path has zero managed allocation. C# fallback available in DEBUG mode.
+- **Level-specific technique configs**: Per-level technique parameters (keys, orders, press times, BPM segments) saved as `LevelName.adofaimacro.json`, auto-loaded on entry.
+- **Per-level segment system**: Override keys/orders/press times within floor ranges inside a single level.
+- **Timing offset fine-tuning**: Millisecond-level offset with in-game hotkeys (`Ctrl + Arrow` / `Arrow keys`).
+- **Key filtering system**: Blacklist/whitelist modes, independent sync (`KeyCode` bitmap) and async (VK code array) filtering.
+- **SkyHook async input mode**: Low-level injection paths (`NtUserInjectKeyboard` etc.) for high-frequency / complex scenarios.
+- **Death Key**: Configurable auto-keypress on death (SkyHook mode only).
+- **Multi-language UI**: JSON-based key-value translations (Chinese/English, easily extensible).
+- **Out-of-focus guard**: Skips key sending when window is unfocused without pausing the worker thread.
+- **Double-buffered time anchor**: Lock-free TimeAnchor sync — main thread writes, worker thread reads, zero contention.
 
 ---
 
@@ -116,9 +121,9 @@ This is a **.NET Framework** C# project (`ADOFAIMacro-Dev.csproj`) that referenc
 - `UnityEngine.dll`
 - `UnityEngine.CoreModule.dll`
 - `SkyHook.Unity.dll`
-- `Newtonsoft.Json.dll` (required for localisation system, get from game Managed folder or NuGet)
+- `Newtonsoft.Json.dll` (required for localization system, get from game Managed folder or NuGet)
 
-> Note: The localisation system uses `Newtonsoft.Json` instead of Unity's `JsonUtility` to support `Dictionary<string, string>` deserialization.
+> Note: The localization system uses `Newtonsoft.Json` instead of Unity's `JsonUtility` to support `Dictionary<string, string>` deserialization.
 
 ### 4.2 Local Build Flow
 
