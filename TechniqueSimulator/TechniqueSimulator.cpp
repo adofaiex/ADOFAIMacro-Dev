@@ -307,6 +307,18 @@ HitEvent* BuildTechniqueHitEvents(
             }
             */
 
+            // ── 自适应时间片延伸（仅在下一片更稀疏时合并）────
+            if (g_config.speedChangeTolerance > 0.0 && cnt > 0 && nowD + cnt < eventCount) {
+                double nextEvTime = evTime[nowD + cnt];
+                double diff = nextEvTime - (nowT + pLen);
+                if (diff > pLen * 0.001 && diff < pLen * g_config.speedChangeTolerance) {
+                    int nextCnt = CountEventsInRange(evTime, nowD + cnt, (nowT + pLen) + pLen * 0.995);
+                    if (nextCnt < cnt) {
+                        pLen = nextEvTime - nowT;
+                    }
+                }
+            }
+
             // 提交时间片
             memcpy(mCntPre, mCnt, sizeof(mCnt));
             pieces.emplace_back(cnt, csH, pLen, nowT, nowT + pLen, nowD, mult);

@@ -31,6 +31,7 @@ namespace ADOFAIMacro.Macro
         private static double[]? _cachedRightPressTimes;
         private static int _cachedBpmLimit;
         private static int _cachedHandPreference;
+        private static double _cachedSpeedChangeTolerance;
         private static Settings.TechniqueSegment[]? _cachedSegments;
 
         // ─────────────────────────────────────────────
@@ -111,6 +112,8 @@ namespace ADOFAIMacro.Macro
 
             public IntPtr Segments;
             public int SegmentCount;
+            // 4 bytes padding
+            public double SpeedChangeTolerance;
         }
 
         // ─────────────────────────────────────────────
@@ -154,6 +157,7 @@ namespace ADOFAIMacro.Macro
             double[] leftPressTimes, double[] rightPressTimes,
             double bpmLimit,
             int handPreference,
+            double speedChangeTolerance,
             Settings.TechniqueSegment[] segments)
         {
             _cachedLeftKeys = leftKeys;
@@ -164,6 +168,7 @@ namespace ADOFAIMacro.Macro
             _cachedRightPressTimes = rightPressTimes;
             _cachedBpmLimit = (int)bpmLimit;
             _cachedHandPreference = handPreference;
+            _cachedSpeedChangeTolerance = speedChangeTolerance;
             _cachedSegments = segments;
         }
 
@@ -324,7 +329,8 @@ namespace ADOFAIMacro.Macro
             {
                 BpmLimit = _cachedBpmLimit,
                 HandPreference = _cachedHandPreference,
-                SegmentCount = _cachedSegments?.Length ?? 0
+                SegmentCount = _cachedSegments?.Length ?? 0,
+                SpeedChangeTolerance = _cachedSpeedChangeTolerance
             };
 
             try

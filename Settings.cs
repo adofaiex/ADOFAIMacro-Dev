@@ -31,6 +31,7 @@ namespace ADOFAIMacro
             public string leftHandPressTimes = "0.8,0.8";
             public string rightHandPressTimes = "0.8,0.8";
             public int handPreference = 1; // 0=左手优先, 1=右手优先
+            public float speedChangeTolerance = 0f;
             public List<TechniqueSegment> techniqueSegments = [];
 
             public TechniqueProfile() { }
@@ -47,6 +48,7 @@ namespace ADOFAIMacro
                     leftHandPressTimes = this.leftHandPressTimes,
                     rightHandPressTimes = this.rightHandPressTimes,
                     handPreference = this.handPreference,
+                    speedChangeTolerance = this.speedChangeTolerance,
                     techniqueSegments = [.. this.techniqueSegments.Select(s => new TechniqueSegment {
                         startFloor          = s.startFloor,
                         endFloor            = s.endFloor,
@@ -332,6 +334,15 @@ namespace ADOFAIMacro
         }
 
         // ── 手法输入框状态 ────────────────────────────
+        private float _speedChangeTolerance = 0f;
+        public float SpeedChangeTolerance
+        {
+            get => _speedChangeTolerance;
+            set => _speedChangeTolerance = Mathf.Clamp(value, 0f, 0.5f);
+        }
+
+        private (string input, bool focused) _speedChangeToleranceState = (string.Empty, false);
+
         private (string input, bool focused) _techLeftKeysState = (string.Empty, false);
         private (string input, bool focused) _techRightKeysState = (string.Empty, false);
         private (string input, bool focused) _techLeftPressTimesState = (string.Empty, false);
@@ -370,6 +381,7 @@ namespace ADOFAIMacro
             TechLeftHandPressTimes = p.leftHandPressTimes;
             TechRightHandPressTimes = p.rightHandPressTimes;
             TechniqueHandPreference = p.handPreference;
+            SpeedChangeTolerance = p.speedChangeTolerance;
         }
 
         private void SaveCurrentToProfile(int index)
@@ -383,6 +395,7 @@ namespace ADOFAIMacro
             p.leftHandPressTimes = TechLeftHandPressTimes;
             p.rightHandPressTimes = TechRightHandPressTimes;
             p.handPreference = TechniqueHandPreference;
+            p.speedChangeTolerance = SpeedChangeTolerance;
 
             // 保存分段配置：深拷贝当前分段列表
             var currentSegments = p.techniqueSegments;
@@ -1166,6 +1179,23 @@ namespace ADOFAIMacro
                 normal = { textColor = new Color(0.7f, 0.7f, 0.7f, 0.8f) }
             };
             GUILayout.Label(LocalizationManager.Get("tech.bpm_explanation"), tipStyle);
+
+            GUILayout.Space(4);
+            GUILayout.BeginHorizontal();
+            SpeedChangeTolerance = UIUtils.M3HorizontalSliderWithLabelAndInput(
+                LocalizationManager.Get("tech.speed_change_tolerance"),
+                SpeedChangeTolerance, 0f, 0.5f,
+                ref _speedChangeToleranceState.input, ref _speedChangeToleranceState.focused,
+                "F2", 200, 240, 60);
+            GUILayout.EndHorizontal();
+            GUILayout.Space(2);
+            GUIStyle tolTipStyle = new(UIUtils.LabelStyle)
+            {
+                fontSize = 10,
+                wordWrap = true,
+                normal = { textColor = new Color(0.7f, 0.7f, 0.7f, 0.8f) }
+            };
+            GUILayout.Label(LocalizationManager.Get("tech.speed_change_tolerance_desc"), tolTipStyle);
 
             // ── 变速分段 ─────────────────────────────────────
             DrawTechniqueSegments();

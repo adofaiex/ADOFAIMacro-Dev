@@ -80,6 +80,8 @@ struct TechniqueConfig {
 
     TechniqueSegment* segments;
     int               segmentCount;
+    // 4 bytes padding
+    double speedChangeTolerance;
 };
 
 #pragma pack(pop)

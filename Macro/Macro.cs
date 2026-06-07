@@ -938,12 +938,15 @@ namespace ADOFAIMacro.Macro
                         handPref = Main.Settings.TechniqueHandPreference;
                     }
 
+                    double speedChangeTolerance = levelConfig?.speedChangeTolerance
+                        ?? Main.Settings.SpeedChangeTolerance;
                     TechniqueSimulator.UpdateConfig(
                         _techLeftKeys, _techRightKeys,
                         _techKeyOrders[0], _techKeyOrders[1],
                         _techPressDur[0], _techPressDur[1],
                         Main.Settings.TechniqueBpmLimit,
                         handPref,
+                        speedChangeTolerance,
                         segments);
 
                     if (TechniqueSimulator.BuildHitEvents(
@@ -1125,27 +1128,22 @@ namespace ADOFAIMacro.Macro
                     continue;
                 }
 
-                /*
-
-                // 非二进制分片检测（三连音/五连音自适应）
-                if (cnt > 0 && nowD + cnt < total)
+                // ── 自适应时间片延伸（仅在下一片更稀疏时合并）────
+                float speedChangeTolerance = LevelTechniqueManager.GetCurrentLevelConfig()?.speedChangeTolerance
+                    ?? Main.Settings.SpeedChangeTolerance;
+                if (speedChangeTolerance > 0f && cnt > 0 && nowD + cnt < total)
                 {
                     double nextEvTime = evTime[nowD + cnt];
-                    double boundary   = nowT + pLen;
-                    double diff       = nextEvTime - boundary;
-                    if (diff > pLen * 0.001 && diff < pLen * 0.50)
+                    double diff = nextEvTime - (nowT + pLen);
+                    if (diff > pLen * 0.001 && diff < pLen * speedChangeTolerance)
                     {
-                    // 预测不调整时下一个分片的事件数
-                    // 注意 0.995 只乘在 pLen 上（与下次循环的计数范围一致）
-                    int nextCnt = CountEventsInRange(evTime, nowD + cnt, boundary + pLen * 0.995);
-                        // 只有当下一个分片不满（手分配不均）时才调整
+                        int nextCnt = CountEventsInRange(evTime, nowD + cnt, (nowT + pLen) + pLen * 0.995);
                         if (nextCnt < cnt)
                         {
                             pLen = nextEvTime - nowT;
                         }
                     }
                 }
-                */
 
                 Array.Copy(mCnt, mCntPre, 16);
                 pieces.Add(new PieceInfo(cnt, csH, pLen, nowT, nowT + pLen, nowD, mult));
