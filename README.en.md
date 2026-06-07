@@ -107,7 +107,7 @@ When `SkyHookMode = true`, you can select the lower-layer mode:
   - `SkyHookMode` / `InputMode`
   - `EnableKeyFilter` and filter lists
 
-> This repository includes `InputSystem.dll`, loaded at runtime by `InputSystem.Initialize()`.(https://github.com/2228293026/InputSystem)
+> This repository includes `InputSystem.dll`, loaded at runtime by `InputSystem.Initialize()`.[InputSystem](https://github.com/2228293026/InputSystem)
 
 ---
 

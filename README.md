@@ -107,7 +107,7 @@ ADOFAIMacro 提供以下核心能力：
   - `SkyHookMode` / `InputMode`
   - `EnableKeyFilter` 配置是否符合当前习惯。
 
-> 仓库包含 `InputSystem.dll`，运行时由 `InputSystem.Initialize()` 尝试加载。（https://github.com/2228293026/InputSystem）
+> 仓库包含 `InputSystem.dll`，运行时由 `InputSystem.Initialize()` 尝试加载。[InputSystem](https://github.com/2228293026/InputSystem)
 
 ---
 
