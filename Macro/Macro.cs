@@ -246,13 +246,10 @@ namespace ADOFAIMacro.Macro
                 if (!initialized) return;
             }
 
-            if (Volatile.Read(ref _workerNeedsHit) != 0)
+            if (!Main.Settings.BlockInputWhenUnfocused || IsGameWindowFocused())
             {
-                if (!Main.Settings.BlockInputWhenUnfocused || IsGameWindowFocused())
-                {
-                    int hitCount = Interlocked.Exchange(ref _workerNeedsHit, 0);
-                    for (int h = 0; h < hitCount; h++) controller.chosenPlanet.player!.Hit(false);
-                }
+                int hitCount = Interlocked.Exchange(ref _workerNeedsHit, 0);
+                for (int h = 0; h < hitCount; h++) controller.chosenPlanet.player!.Hit(false);
             }
 
 #if DEBUG
@@ -885,9 +882,13 @@ namespace ADOFAIMacro.Macro
             var floors = cachedFloors!;
             bool sim = Main.Settings.SimulateKeyPress;
 
-            var evTime = new List<double>(floors.Length);
-            var evPress = new List<int>(floors.Length);
-            var evFloor = new List<int>(floors.Length);
+            _evTimeRecycle.Clear();
+            _evPressRecycle.Clear();
+            _evFloorRecycle.Clear();
+
+            var evTime = _evTimeRecycle;
+            var evPress = _evPressRecycle;
+            var evFloor = _evFloorRecycle;
 
             for (int i = 0; i < floors.Length - 1; i++)
             {

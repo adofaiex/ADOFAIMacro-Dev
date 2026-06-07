@@ -54,6 +54,9 @@ namespace ADOFAIMacro.Macro
         private static int m_dspErrorCounter;
         private static bool m_safe;
 
+        private static bool _dspMainCached;
+        private static double _dspMainValue;
+
         private static double GetTimeScaleAsDouble() => ((long)(Time.timeScale * 1E6 + 0.1)) * 1E-6;
         private static double UpdatePreciseDeltaTime()
         {
@@ -72,9 +75,13 @@ namespace ADOFAIMacro.Macro
         }
         private static DSPLimit GetDSPTimeDeltasLimit()
         {
-            AudioConfiguration ac = AudioSettings.GetConfiguration();
-            double main = ac.dspBufferSize / (double)ac.sampleRate;
-            return new(main * Config.ErrorHitDeltaMultiply, main * Config.MaxHitDeltaMultiply, main);
+            if (!_dspMainCached)
+            {
+                AudioConfiguration ac = AudioSettings.GetConfiguration();
+                _dspMainValue = ac.dspBufferSize / (double)ac.sampleRate;
+                _dspMainCached = true;
+            }
+            return new(_dspMainValue * Config.ErrorHitDeltaMultiply, _dspMainValue * Config.MaxHitDeltaMultiply, _dspMainValue);
         }
 
         internal static void Update()
