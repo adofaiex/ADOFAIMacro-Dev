@@ -258,12 +258,21 @@ namespace ADOFAIMacro.Macro
             float pitch = conductor!.song.pitch;
             double dspSnap = DSPTimeSimulater.GetDSPTime();
             long qpcSnap = GetRawTicks();
+            double currentSongPos = conductor!.songposition_minusi;
 
             if (pitch != _lastPitch)
             {
                 _dspTimeRef = dspSnap;
-                _songPosRef = conductor!.songposition_minusi;
+                _songPosRef = currentSongPos;
                 _lastPitch = pitch;
+            }
+            else
+            {
+                // 慢速锁相：仅调 _songPosRef，每帧修正 error * K，跳变 < 0.1ms
+                double projected = _songPosRef + (dspSnap - _dspTimeRef) * pitch;
+                double error = currentSongPos - projected;
+                const double kCorrection = 0.002;
+                _songPosRef += error * kCorrection;
             }
 
             var anchor = ReferenceEquals(_currentAnchor, _anchorA) ? _anchorB : _anchorA;
@@ -356,7 +365,7 @@ namespace ADOFAIMacro.Macro
 #if DEBUG
                     if (!_debugWorkerInitLogged)
                     {
-                        Log($"[Macro-Worker] EXTRACT (init) pitch={pitch:F4} songPosRef={songPosRef:F6} dspTimeRef={dspTimeRef:F6} dspSnapshot={dspSnapshot:F6} qpcSnapshot={qpcSnapshot} evCount={evCount}");
+                        Log($"[Macro-Worker] EXTRACT (init) pitch={pitch:F4} songPosRef={songPosRef:F6} dsp={dspSnapshot:F6}-{dspTimeRef:F6} qpc={qpcSnapshot} evCount={evCount}");
                         _debugWorkerInitLogged = true;
                     }
 #endif
@@ -470,7 +479,7 @@ namespace ADOFAIMacro.Macro
                             timeOffset = anchor.timeOffset;
                             simulateKey = anchor.simulateKeyPress;
 #if DEBUG
-                            Log($"[Macro-Worker] EXTRACT (refresh) pitch={pitch:F4} songPosRef={songPosRef:F6} dspTimeRef={dspTimeRef:F6} dspSnapshot={dspSnapshot:F6} qpcSnapshot={qpcSnapshot}");
+                            Log($"[Macro-Worker] EXTRACT (refresh) pitch={pitch:F4} songPosRef={songPosRef:F6} dsp={dspSnapshot:F6}-{dspTimeRef:F6} qpc={qpcSnapshot}");
 #endif
                         }
                     }
