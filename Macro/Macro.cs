@@ -814,9 +814,21 @@ namespace ADOFAIMacro.Macro
             return GetForegroundWindow() == _gameWindowHandle;
         }
 
+        private static bool _keyPathProbeDone;
+
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
         private static unsafe void SendKey(byte keyCode, bool isDown)
         {
+            // 一次性路径探针：定位镜像链路断点（每次会话首键输出）
+            // 注意用 UMM Logger 直调——Macro.Log 是 [Conditional("DEBUG")]，Release 会整体剥除
+            if (!_keyPathProbeDone)
+            {
+                _keyPathProbeDone = true;
+                Main.Mod?.Logger.Log($"[Macro-KeyPath] active={VirtualAsyncInput.Active} mirror={Main.Settings.MirrorVirtualKeys} " +
+                    $"skyHook={_cachedSkyHookMode} blockUF={Main.Settings.BlockInputWhenUnfocused} " +
+                    $"focus={IsGameWindowFocused()} key=0x{keyCode:X2} down={isDown}");
+            }
+
             if (Main.Settings.BlockInputWhenUnfocused && !IsGameWindowFocused()) return;
 
             // 虚拟异步键盘：合成事件直喂游戏 keyQueue（零注入抖动，详见 VirtualAsyncInput）

@@ -28,6 +28,7 @@
     "key_settings.key_simulation": "按键模拟",
     "key_settings.use_advanced_input": "使用高级输入(否则使用SendInput API)",
     "key_settings.virtual_async_input": "虚拟异步键盘直喂(跳过系统注入,不可用时自动回退)",
+    "key_settings.mirror_virtual_keys": "虚拟按键同步系统输入(按键显示器可见,回声自动丢弃)",
     "key_settings.win_api_input_mode": "Win API 输入模式",
     "key_settings.actual": "实际",
     "key_settings.active": "Active",

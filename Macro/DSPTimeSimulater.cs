@@ -57,20 +57,32 @@ namespace ADOFAIMacro.Macro
         private static bool _dspMainCached;
         private static double _dspMainValue;
 
-        private static double GetTimeScaleAsDouble() => ((long)(Time.timeScale * 1E6 + 0.1)) * 1E-6;
+        // Unity Time 状态主线程缓存：工作线程（WorkerLoop → GetDSPTimeAsFileTime）禁止
+        // 直接调 Time.*——Unity 原生 API 非主线程调用会崩（实测崩溃栈：
+        // WorkerLoop → GetPreciseDeltaTime → Time.get_captureFramerate/get_captureDeltaTime）
+        private static volatile int _cachedCaptureFramerate;
+        private static double _cachedTimeScale = 1.0;
+
+        private static double GetTimeScaleAsDouble() => _cachedTimeScale;
+        private static void CacheUnityTimeState()
+        {
+            // 仅主线程调用（Update 首行）
+            _cachedCaptureFramerate = Time.captureFramerate;
+            _cachedTimeScale = ((long)(Time.timeScale * 1E6 + 0.1)) * 1E-6;
+        }
         private static double UpdatePreciseDeltaTime()
         {
             long l = BaseSelect.GetFileTime();
-            double res = Time.captureFramerate != 0
-                ? 1.0 / Time.captureFramerate
+            double res = _cachedCaptureFramerate != 0
+                ? 1.0 / _cachedCaptureFramerate
                 : (l - m_lastTime) / SECOND_2_TICK * GetTimeScaleAsDouble();
             m_lastTime = l;
             return res;
         }
         private static double GetPreciseDeltaTime()
         {
-            return Time.captureFramerate > 0
-                ? 1.0 / Time.captureFramerate
+            return _cachedCaptureFramerate > 0
+                ? 1.0 / _cachedCaptureFramerate
                 : (BaseSelect.GetFileTime() - m_lastTime) / SECOND_2_TICK * GetTimeScaleAsDouble();
         }
         private static DSPLimit GetDSPTimeDeltasLimit()
@@ -86,6 +98,8 @@ namespace ADOFAIMacro.Macro
 
         internal static void Update()
         {
+            // 主线程每帧刷新 Unity Time 缓存（工作线程只读缓存，见 CacheUnityTimeState 注释）
+            CacheUnityTimeState();
             // 更新
             m_dspTime += UpdatePreciseDeltaTime();
             m_dspDeltaTime += AudioSettings.dspTime - m_dspTime;

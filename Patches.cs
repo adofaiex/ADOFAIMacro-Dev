@@ -615,6 +615,12 @@ namespace ADOFAIMacro
             [HarmonyPrefix]
             public static bool Prefix(SkyHookEvent ev)
             {
+                // 0. 镜像回声丢弃：虚拟按键直喂成功后注入的显示用真实按键
+                //    会经钩子回流，配额命中即丢弃（虚拟直喂走 KeyUpdated.Invoke，
+                //    不经过这里，不受影响）——不丢会导致同一击打判定两次
+                if (Macro.VirtualAsyncInput.ShouldDropMirrorEcho(ev.Key, ev.Type))
+                    return false;
+
                 // 1. 基本检查
                 if (!Application.isPlaying) return true;
 

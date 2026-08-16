@@ -29,6 +29,7 @@ namespace ADOFAIMacro
         public static bool Load(UnityModManager.ModEntry modEntry)
         {
             Mod = modEntry;
+            modEntry.Logger.Log("[ADOFAIMacro] Build: 2026-08-17-2 (focus-cache-fix)");
             Settings = Settings.Load(modEntry);
 
             // 初始化本地化系统

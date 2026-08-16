@@ -41,6 +41,12 @@ namespace ADOFAIMacro.Macro
         private static volatile bool _layoutOk;
         private static volatile bool _active;
 
+        // 焦点缓存：SkyHookManager.IsFocused 是静态 bool 默认 false，仅在其 Update 里
+        // requireFocus==true 时才同步——本游戏的实例不同步它（僵尸值恒 false，曾把
+        // 镜像的所有 down 误判为失焦拦掉）。改为 RefreshActive（主线程）每帧缓存
+        // Application.isFocused，工作线程只读缓存。
+        private static volatile bool _appFocused = true;
+
         // 内置按键显示状态（worker 写 / OnGUI 读，lock 保护）
         internal static readonly object DisplayLock = new();
         internal static readonly Dictionary<byte, int> DisplayDown = new(8);          // vk → 按下时刻 ms
@@ -80,6 +86,7 @@ namespace ADOFAIMacro.Macro
                 active = false;
             }
             _active = active;
+            _appFocused = UnityEngine.Application.isFocused;
         }
 
         /// <summary>
@@ -120,12 +127,136 @@ namespace ADOFAIMacro.Macro
                         if (DisplayUps.Count > 8) DisplayUps.RemoveAt(0);
                     }
                 }
+
+                // 镜像同步：注入一份真实按键让 OS 键盘/Unity Input 层可见
+                // （JipperKeyViewer 等按键显示器读 Input.GetKeyDown，看不见直喂事件）
+                if (_sendProbeDone == false)
+                {
+                    _sendProbeDone = true;
+                    Main.Mod?.Logger.Log($"[Macro-KeyPath] Send-first-ok mirror={Main.Settings.MirrorVirtualKeys} " +
+                              $"settings#{System.Runtime.CompilerServices.RuntimeHelpers.GetHashCode(Main.Settings)}");
+                }
+                if (Main.Settings.MirrorVirtualKeys)
+                    SendMirror(keyCode, isDown);
+
                 return true;
             }
             catch
             {
                 return false;
             }
+        }
+
+        // ─────────────────────────────────────────────────────────
+        //  镜像同步（Mirror）
+        //
+        //  直喂事件只进游戏 keyQueue，OS 键盘/Unity Input 层看不见，
+        //  JipperKeyViewer 等按键显示器（读 Input.GetKeyDown）无显示。
+        //  解决：直喂成功后同步注入一份真实按键（DirectPushKey → SendInput）。
+        //
+        //  回声问题：注入的键会经 skyhook LL 钩子回流 → HookCallback →
+        //  KeyUpdated → keyQueue，同一击打被判定两次。解决：注入【前】
+        //  给该键登记一次回声配额，SkyHookManager_HookCallback_Patch 的
+        //  Prefix 消耗配额并丢弃该事件（虚拟直喂走 KeyUpdated.Invoke，
+        //  不经过 HookCallback，不受影响）。
+        // ─────────────────────────────────────────────────────────
+        // 一次性探针标志（[Macro-KeyPath] Send-first-ok）
+        private static bool _sendProbeDone;
+
+        private static readonly object MirrorLock = new();
+        private static readonly int[] _mirrorEchoDown = new int[256];   // 每键待消耗回声（按下）
+        private static readonly int[] _mirrorEchoUp = new int[256];     // 每键待消耗回声（松开）
+        private static readonly int[] _mirrorEchoExpire = new int[256]; // Environment.TickCount
+        private const int MirrorEchoTimeoutMs = 120;
+
+        // 快路径指示：存在任何未过期配额时才进锁检查（HookCallback 每个真实按键都过一遍）
+        private static volatile int _mirrorQuotaActive;
+
+        // 诊断计数（Interlocked，[Macro-Mirror] 每 3s 输出一次）：
+        // 回声已丢 > 0 说明注入确实穿过了 OS 输入流（LL 钩子看见了），
+        // 查看器仍不亮 = Unity Input 不报注入键；回声已丢 = 0 = 注入没发生/没到钩子
+        private static long _mirrorStatSends;
+        private static long _mirrorStatFail;
+        private static long _mirrorStatEcho;
+        private static long _mirrorStatUnfocused;
+        private static int _mirrorStatLastFlush;
+
+        private static void SendMirror(byte keyCode, bool isDown)
+        {
+            // 未聚焦时不注入新按下（SendInput 会打进别的应用）；
+            // up 仍然要发——清理可能卡住的键状态，孤立的 up 无副作用
+            if (isDown && !_appFocused)
+            {
+                System.Threading.Interlocked.Increment(ref _mirrorStatUnfocused);
+                return;
+            }
+
+            lock (MirrorLock)
+            {
+                // 配额必须先于注入登记：注入事件 ~0.05-2ms 后到达 HookCallback，
+                // 顺序颠倒会存在竞态窗口漏吃回声 → 双判定
+                int idx = keyCode;
+                _mirrorEchoExpire[idx] = Environment.TickCount + MirrorEchoTimeoutMs;
+                if (isDown) _mirrorEchoDown[idx]++; else _mirrorEchoUp[idx]++;
+                _mirrorQuotaActive = 1;
+            }
+
+            System.Threading.Interlocked.Increment(ref _mirrorStatSends);
+            int result = AsyncInputManager.DirectPushKey(keyCode, isDown);
+            if (result != 0)
+                System.Threading.Interlocked.Increment(ref _mirrorStatFail);
+
+            FlushMirrorStats();
+        }
+
+        private static void FlushMirrorStats()
+        {
+            int now = Environment.TickCount;
+            int last = _mirrorStatLastFlush;
+            if (now - last < 3000 || System.Threading.Interlocked.CompareExchange(ref _mirrorStatLastFlush, now, last) != last)
+                return;
+
+            long sends = System.Threading.Interlocked.Read(ref _mirrorStatSends);
+            long fails = System.Threading.Interlocked.Read(ref _mirrorStatFail);
+            long echoes = System.Threading.Interlocked.Read(ref _mirrorStatEcho);
+            long unfocused = System.Threading.Interlocked.Read(ref _mirrorStatUnfocused);
+            System.Threading.Interlocked.Add(ref _mirrorStatSends, -sends);
+            System.Threading.Interlocked.Add(ref _mirrorStatFail, -fails);
+            System.Threading.Interlocked.Add(ref _mirrorStatEcho, -echoes);
+            System.Threading.Interlocked.Add(ref _mirrorStatUnfocused, -unfocused);
+            if (sends > 0 || echoes > 0 || unfocused > 0)
+                Main.Mod?.Logger.Log($"[Macro-Mirror] 注入 {sends} 次(失败 {fails}) | 回声已丢 {echoes} | 失焦跳过 {unfocused}");
+        }
+
+        /// <summary>
+        /// HookCallback Prefix 调用：该事件是否为镜像注入的回声（是 → 应丢弃）。
+        /// </summary>
+        internal static bool ShouldDropMirrorEcho(ushort key, EventType type)
+        {
+            if (_mirrorQuotaActive == 0 || key >= 256) return false;
+
+            lock (MirrorLock)
+            {
+                int idx = key;
+                if (_mirrorEchoExpire[idx] != 0 &&
+                    Environment.TickCount - _mirrorEchoExpire[idx] > 0)
+                {
+                    // 超时：回声没来（钩子未运行/被系统吃掉），清配额防误吞真实按键
+                    _mirrorEchoDown[idx] = 0;
+                    _mirrorEchoUp[idx] = 0;
+                    _mirrorEchoExpire[idx] = 0;
+                }
+
+                int[] counts = type == EventType.KeyPressed ? _mirrorEchoDown : _mirrorEchoUp;
+                if (counts[idx] > 0)
+                {
+                    counts[idx]--;
+                    System.Threading.Interlocked.Increment(ref _mirrorStatEcho);
+                    FlushMirrorStats();
+                    return true;
+                }
+            }
+            return false;
         }
 
         /// <summary>按已知偏移构造事件（readonly 字段无法用初始化器，只能指针写入）。</summary>

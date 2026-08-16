@@ -201,6 +201,16 @@ namespace ADOFAIMacro
             set { if (_useVirtualAsyncInput == value) return; _useVirtualAsyncInput = value; }
         }
 
+        // ── 虚拟按键镜像：直喂成功后同步注入一份真实按键（SendInput），
+        //    让读 Unity Input / OS 键盘的按键显示器（JipperKeyViewer 等）看见
+        //    虚拟按键；注入回声在 HookCallback 里按配额丢弃，不会双判定 ──
+        private bool _mirrorVirtualKeys = true;
+        public bool MirrorVirtualKeys
+        {
+            get => _mirrorVirtualKeys;
+            set { if (_mirrorVirtualKeys == value) return; _mirrorVirtualKeys = value; }
+        }
+
         // ── 游玩期 GC 停顿抑制（方案8）：高密度图消除 GC 尖峰 ──
         // （当前环境 TryStartNoGCRegion 从未成功过，默认关闭减少变量）
         private bool _suppressGcPauses = false;
@@ -680,6 +690,14 @@ namespace ADOFAIMacro
                     bool newVirtual = UIUtils.M3Switch(UseVirtualAsyncInput,
                         Localization.LocalizationManager.Get("key_settings.virtual_async_input"));
                     if (newVirtual != UseVirtualAsyncInput) UseVirtualAsyncInput = newVirtual;
+
+                    if (UseVirtualAsyncInput)
+                    {
+                        GUILayout.Space(2);
+                        bool newMirror = UIUtils.M3Switch(MirrorVirtualKeys,
+                            Localization.LocalizationManager.Get("key_settings.mirror_virtual_keys"));
+                        if (newMirror != MirrorVirtualKeys) MirrorVirtualKeys = newMirror;
+                    }
                     GUILayout.Space(2);
 
                     GUILayout.Space(6);

@@ -28,6 +28,7 @@
     "key_settings.key_simulation": "Key simulation",
     "key_settings.use_advanced_input": "Use advanced input (if closed, use SendInput API)",
     "key_settings.virtual_async_input": "Virtual async keyboard (bypass system injection, auto fallback)",
+    "key_settings.mirror_virtual_keys": "Mirror virtual keys to system input (key viewers, echoes dropped)",
     "key_settings.win_api_input_mode": "Win API Input Mode",
     "key_settings.actual": "Actual",
     "key_settings.active": "Active",
