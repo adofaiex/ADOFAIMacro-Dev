@@ -153,10 +153,10 @@ namespace ADOFAIMacro
         [HarmonyPatch(typeof(scrConductor), "Update")]
         public static class __scrConductor
         {
+            // 精确本地时间（与 skyhook 事件时间戳同域，实现见 PreciseNow 的域说明）
             public static unsafe long Update_1()
             {
-                long l = BaseSelect.GetFileTime();
-                return DateTime.Now.Ticks - DateTime.UtcNow.Ticks + l;
+                return PreciseNow.LocalTicks();
             }
 
             public static double Update_2() => DSPTimeSimulater.GetDSPTime();
@@ -200,6 +200,45 @@ namespace ADOFAIMacro
                 }
 
                 return result.AsEnumerable();
+            }
+        }
+
+        // ─────────────────────────────────────────────
+        //  判定误差探针：用游戏自己的换算复现 AddHit 的毫秒误差，
+        //  连同 speed 一起记录——用于定位变速段偏移（数据说话）
+        // ─────────────────────────────────────────────
+        [HarmonyPatch(typeof(scrHitErrorMeter), nameof(scrHitErrorMeter.AddHit))]
+        public static class Patch_HitErrorMeter_AddHit
+        {
+            [HarmonyPostfix]
+            public static void Postfix(float angleDiff, float marginScale, scrPlanet planet, scrFloor hitFloor)
+            {
+                try
+                {
+                    var conductor = scrConductor.instance;
+                    if (conductor == null) return;
+
+                    // 与游戏 AddHit 内部完全相同的换算
+                    float deg = angleDiff * -57.29578f;
+                    float? spd = (hitFloor ?? planet?.player?.currFloor?.prevfloor)?.speed;
+                    double bpmTimesSpeed = conductor.bpm * (spd ?? 1f);
+                    double boundary = scrMisc.GetAdjustedAngleBoundaryInDeg(
+                        HitMarginGeneral.Counted, bpmTimesSpeed, conductor.song.pitch, marginScale);
+                    if (boundary <= 0) return;
+                    float errMs = deg * (float)(60.0 / boundary);
+
+                    int floorId = hitFloor != null ? hitFloor.seqID
+                        : planet?.player?.currFloor?.seqID ?? -1;
+                    double nowSpeed = ADOBase.controller?.playerOne?.planetarySystem?.speed ?? 0.0;
+
+                    // 方案7：闭环校准——把实测判定误差喂给宏
+                    ADOFAIMacro.Macro.Macro.RecordJudgedError(errMs, (float)(spd ?? 1f));
+
+                    Main.Mod?.Logger.Log(
+                        $"[Macro-Judge] floor={floorId} err={errMs:+0.0;-0.0}ms " +
+                        $"spdUsed={spd ?? 1f:F2} spdNow={nowSpeed:F2} marginScale={marginScale:F2}");
+                }
+                catch { }
             }
         }
 
@@ -391,7 +430,7 @@ namespace ADOFAIMacro
                     object value = anyKeyCode.value;
                     if (value is KeyCode keyCode)
                     {
-                        instance.keyFrequency[keyCode] = instance.keyFrequency.ContainsKey(keyCode) ? instance.keyFrequency[keyCode] + 1 : 0;
+                        instance.keyFrequency[keyCode] = instance.keyFrequency.TryGetValue(keyCode, out int freq) ? freq + 1 : 0;
                         instance.keyTotal++;
 
                         // 黑白名单过滤
@@ -406,7 +445,7 @@ namespace ADOFAIMacro
                     }
                     else if (value is AsyncKeyCode asyncKeyCode)
                     {
-                        instance.keyFrequency[asyncKeyCode] = instance.keyFrequency.ContainsKey(asyncKeyCode) ? instance.keyFrequency[asyncKeyCode] + 1 : 0;
+                        instance.keyFrequency[asyncKeyCode] = instance.keyFrequency.TryGetValue(asyncKeyCode, out int asyncFreq) ? asyncFreq + 1 : 0;
                         instance.keyTotal++;
 
                         if (IsAsyncKeyAllowed(asyncKeyCode.key))  // 小写 key

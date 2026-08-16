@@ -76,10 +76,8 @@ namespace ADOFAIMacro.Macro
         private sealed class TimeAnchor
         {
             public double songPosRef;
-            public double dspTimeRef;
-            public double dspSnapshot;
             public long qpcSnapshot;
-            public double pitch;
+            public double rate;          // 位置推进速率（≈ pitch，由最小二乘拟合）
             public double timeOffset;
             public bool simulateKeyPress;
 
@@ -102,10 +100,14 @@ namespace ADOFAIMacro.Macro
         private static readonly TimeAnchor _anchorB = new();
         private static volatile TimeAnchor _currentAnchor = _anchorA;
 
-        private static double _songPosRef;
-        private static double _dspTimeRef;
-        private static float _lastPitch;
         private static int _staticAnchorVersion = 0;
+
+        // 方案9：minusi 兜底低通状态（主线程；公式基线接管时清除）
+        private static double _songPosSm;
+        private static long _smRefTick;
+        private static double _smPitch;
+        private static bool _slewSeeded;
+        private static bool _formulaEngaged;
 
         private static readonly double perfFreqInv;
 
@@ -132,6 +134,7 @@ namespace ADOFAIMacro.Macro
         private static volatile bool _cachedSkyHookMode = false;
         private static volatile bool _cachedHighPrecision = false;
         private static volatile bool skyHookInitialized = false;
+        private static bool _virtualAsyncInitDone = false;
 
         // 时间源委托（消除分支）
         private static Func<long> _getTicksImpl;
@@ -172,6 +175,46 @@ namespace ADOFAIMacro.Macro
         [DllImport("winmm.dll")]
         private static extern uint timeEndPeriod(uint uPeriod);
 
+        // ─────────────────────────────────────────────
+        //  高分辨率可等待定时器（工作线程近未来等待用）
+        //  Sleep(1) 粒度 1~2ms；Yield/SpinWait 空转烧 CPU。
+        //  Win10 1803+ 的 HIGH_RESOLUTION 定时器粒度 ~0.5ms 且不占 CPU。
+        //  创建失败（旧系统）时回退 Thread.Sleep，最后 1.5ms 自旋兜底精度。
+        // ─────────────────────────────────────────────
+        private const uint CREATE_WAITABLE_TIMER_HIGH_RESOLUTION = 0x00000002;
+        private const uint TIMER_ALL_ACCESS = 0x1F0003;
+        private static IntPtr _hWaitTimer = IntPtr.Zero;
+
+        // 无 SetLastError：从不读取 GetLastWin32Error，省掉每次调用的错误码存取
+        [DllImport("Kernel32.dll")]
+        private static extern IntPtr CreateWaitableTimerExW(IntPtr lpTimerAttributes, IntPtr lpTimerName, uint dwFlags, uint dwDesiredAccess);
+        [DllImport("Kernel32.dll")]
+        private static extern bool SetWaitableTimer(IntPtr hTimer, ref long lpDueTime, int lPeriod, IntPtr pfnCompletionRoutine, IntPtr lpArgToCompletionRoutine, bool fResume);
+        [DllImport("Kernel32.dll")]
+        private static extern uint WaitForSingleObject(IntPtr hHandle, uint dwMilliseconds);
+
+        // 睡眠至多 seconds 秒（可能略短）；到点必然返回
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        private static void HighResSleep(double seconds)
+        {
+            if (seconds <= 0) return;
+
+            if (_hWaitTimer == IntPtr.Zero)
+                _hWaitTimer = CreateWaitableTimerExW(IntPtr.Zero, IntPtr.Zero,
+                    CREATE_WAITABLE_TIMER_HIGH_RESOLUTION, TIMER_ALL_ACCESS);
+            if (_hWaitTimer == IntPtr.Zero)
+            {
+                // 回退：Sleep 粒度 1~2ms，会睡过头——少睡 1ms，宁可早醒进自旋，不可迟到
+                int ms = (int)Math.Ceiling(seconds * 1000.0) - 1;
+                Thread.Sleep(ms < 1 ? 1 : ms);
+                return;
+            }
+
+            long due = -(long)Math.Ceiling(seconds * 1e7); // 负值 = 相对时间（100ns 单位）
+            if (SetWaitableTimer(_hWaitTimer, ref due, 0, IntPtr.Zero, IntPtr.Zero, false))
+                WaitForSingleObject(_hWaitTimer, unchecked((uint)-1)); // INFINITE
+        }
+
         private static readonly long perfFrequency;
         private static readonly bool usePerfCounter;
         private static readonly byte[] scanCodeCache = new byte[256];
@@ -209,6 +252,134 @@ namespace ADOFAIMacro.Macro
             _getTicksImpl = _getTicksNormal; // 默认
         }
 
+        // ─────────────────────────────────────────────
+        //  方案7b：判定误差闭环校准（按速度学习）
+        //  7a 的问题（实测）：① 窗口横跨变速段时均值被污染，积分缠绕到撞限；
+        //  ② 换段后旧偏移失效，重收敛 2~3 秒。
+        //  改进：误差样本按当前速度段分桶；换段（滞回 4 样本）时提交已收敛的
+        //  偏移到速度→偏移学习表，重进同速度段直接装载（瞬间收敛）；
+        //  环路加速（100ms 窗 / 增益 0.5 / 步长 4ms / 死区 1ms）。
+        //  全部主线程操作，无并发问题。
+        // ─────────────────────────────────────────────
+        private static float _judgeErrSum;
+        private static float _judgeErrSqSum;
+        private static int _judgeErrCount;
+        private static int _judgeLastAdaptMs;
+        private static float _autoOffsetMs;
+        // ⚠️ 持久化已回滚（2026-08-16 事故）：学到的偏移依赖本局运行状态
+        // （offsetTick 收敛相位决定公式路径是否接管，两种基线所需偏移差 ~45ms），
+        // 跨运行灌入会造成系统性错位 → 判定 ±700ms 摆动 → 死亡退局。
+        // 学习表只在本局内存内有效，每局重新收敛（主段 ~1s）。
+
+        /// <summary>判定探针回灌（AddHit 后缀调用，主线程）。</summary>
+        internal static void RecordJudgedError(float errMs, float spdUsed)
+        {
+            if (errMs < -40f) errMs = -40f;
+            else if (errMs > 40f) errMs = 40f;   // 钳制离群值（死亡/重生/变速瞬态）
+            _judgeErrSum += errMs;
+            _judgeErrSqSum += errMs * errMs;
+            _judgeErrCount++;
+            // 注：按速度的学习表已切除（2026-08-16 二次事故）——公式基线下
+            // 各段所需偏移本就是同一常数，跨运行/跨条件的学习值只会在
+            // TimeOffset 等条件变化后变成毒药（实测三局 2.6→6.8→9.7ms 漂移）。
+            // 现在是纯单局控制器：每局从 0 起步，快速档 <1s 收敛，无任何跨状态。
+        }
+
+        private static void StepAutoCalibration()
+        {
+            if (!Main.Settings.AutoCalibrateJudgement)
+            {
+                _autoOffsetMs = 0;
+                _judgeErrSum = 0;
+                _judgeErrSqSum = 0;
+                _judgeErrCount = 0;
+                return;
+            }
+            int now = Environment.TickCount;
+            int sinceLast = unchecked(now - _judgeLastAdaptMs);
+            // 密集窗口（≥6 样本/100ms）；稀疏窗口（≥4 样本/700ms）只用于慢速段。
+            // 稀疏段样本少且帧粒度噪声大（±1 帧量化），增益降到 0.2、死区 3ms，
+            // 只追真实偏移不追噪声——否则环路随机游走反而制造"跳动"。
+            bool dense = _judgeErrCount >= 6 && sinceLast >= 100;
+            bool sparse = _judgeErrCount >= 4 && sinceLast >= 700;
+            if (!dense && !sparse) return;
+
+            _judgeLastAdaptMs = now;
+            float mean = _judgeErrSum / _judgeErrCount;
+            // 测量可信度门控：窗口标准差 > 12ms 判定为不可信（管线饱和/极端密度/
+            // 变速瞬态——例如 20 万 BPM 段的固有消费延迟，与偏移量无关），
+            // 冻结本窗口不调整。否则环路会把饱和误差当偏移硬追，越调越偏。
+            float variance = _judgeErrSqSum / _judgeErrCount - mean * mean;
+            float std = variance > 0f ? (float)Math.Sqrt(variance) : 0f;
+            _judgeErrSum = 0;
+            _judgeErrSqSum = 0;
+            _judgeErrCount = 0;
+            if (std > 12f) return;
+
+            // 双档：公式基线已与判定恒等，残差主体是引擎量化噪声。
+            // 近零档（|err|<15ms）：死区 3ms 内静默；动作时步长 ≤0.8ms，
+            //   抖动上限低于可感知度——环路自己不再制造"晃动"。
+            // 快速档（|err|≥15ms）：真实偏移（如分段相位 −40ms 类），1 秒内吃掉。
+            if (Math.Abs(mean) < 3f) return;
+
+            float step;
+            if (Math.Abs(mean) >= 15f)
+            {
+                step = mean * 0.4f;
+                if (step > 4f) step = 4f; else if (step < -4f) step = -4f;
+            }
+            else
+            {
+                step = mean * 0.06f;
+                if (step > 0.8f) step = 0.8f; else if (step < -0.8f) step = -0.8f;
+            }
+            _autoOffsetMs -= step;
+            if (_autoOffsetMs > 60f) _autoOffsetMs = 60f;
+            else if (_autoOffsetMs < -60f) _autoOffsetMs = -60f;
+
+            Main.Mod?.Logger.Log($"[Macro-Cali] err={mean:F2}ms autoOffset={_autoOffsetMs:F2}ms");
+        }
+
+        // ─────────────────────────────────────────────
+        //  方案8：游玩期 GC 停顿抑制（极端密度图）
+        //  GC 全线程暂停（50~360ms）会同时冻结宏工作线程和游戏判定，
+        //  是高密度图上最大的可见误差尖峰来源。
+        //  进关卡时 TryStartNoGCRegion（大预算推迟所有 GC），关卡结束/
+        //  重开时 End（GC 在加载画面发生，玩家无感）。预算被突破时
+        //  运行时自动回退正常 GC 行为，无风险。
+        // ─────────────────────────────────────────────
+        private static bool _noGcActive;
+        private static bool _noGcBroken;
+
+        private static void TryBeginNoGC()
+        {
+            if (_noGcActive || _noGcBroken || !Main.Settings.SuppressGcPauses) return;
+            try
+            {
+                if (GC.TryStartNoGCRegion(256L << 20))
+                {
+                    _noGcActive = true;
+                    Main.Mod?.Logger.Log("[Macro-GC] NoGCRegion 已启用（游玩期抑制 GC 停顿）");
+                }
+                else _noGcBroken = true;   // 本关不再重试（避免每帧空转）
+            }
+            catch { _noGcBroken = true; }
+        }
+
+        private static void TryEndNoGC()
+        {
+            if (!_noGcActive) return;
+            _noGcActive = false;
+            try
+            {
+                GC.EndNoGCRegion();
+                // NoGCRegion 会重置延迟模式，恢复低延迟设置
+                System.Runtime.GCSettings.LatencyMode = System.Runtime.GCLatencyMode.SustainedLowLatency;
+                Main.Mod?.Logger.Log("[Macro-GC] NoGCRegion 已结束");
+            }
+            catch { /* 预算被突破时 End 会抛异常，属正常回退 */ }
+        }
+
         // ═══════════════════════════════════════════════════════════════
         //  主线程：每帧写锚点
         // ═══════════════════════════════════════════════════════════════
@@ -227,6 +398,10 @@ namespace ADOFAIMacro.Macro
             EnsureWorkerRunning();
 
             if (settings.SkyHookMode != skyHookInitialized) SwitchMode(settings.SkyHookMode);
+
+            // 虚拟异步键盘状态刷新（主线程；工作线程只读 volatile）
+            if (!_virtualAsyncInitDone) { _virtualAsyncInitDone = true; VirtualAsyncInput.Initialize(); }
+            VirtualAsyncInput.RefreshActive();
             bool hp = settings.HighPrecisionTime;
             if (hp != _cachedHighPrecision)
             {
@@ -252,37 +427,85 @@ namespace ADOFAIMacro.Macro
                 for (int h = 0; h < hitCount; h++) controller.chosenPlanet.player!.Hit(false);
             }
 
+            // 方案8：游玩期 GC 抑制（每次进关尝试，失败自动回退）
+            TryBeginNoGC();
+
 #if DEBUG
             int lastFloor = Volatile.Read(ref _workerLastTriggeredFloor);
 #endif
             float pitch = conductor!.song.pitch;
-            double dspSnap = DSPTimeSimulater.GetDSPTime();
             long qpcSnap = GetRawTicks();
             double currentSongPos = conductor!.songposition_minusi;
 
-            if (pitch != _lastPitch)
+            // 方案9：判定公式基线（修复时钟域 bug）。
+            // 判定位置 = ((T − offsetTick)/1e7 − dspTimeSong − cal_i)·pitch − addoffset，
+            // 其中 T 必须与 offsetTick 同域：DateTime 域 ticks。方案6 起误用了
+            // 工作线程的 dsp/QPC 时钟（纪元不同）→ 公式从未生效，所有 session
+            // 实际都是 minusi 裸采样基线（阶梯锯齿直接透传，开局 ±0~60ms 彩票）。
+            // 现在 T = PreciseNow.LocalTicks()——与 Update_1 补丁后的 currFrameTick
+            // 同源同钟，公式真正可用且无需任何击中即可对齐判定（消灭开局彩票）。
+            // minusi 兜底恢复有界低通（平滑音频缓冲阶梯波）。
+            double rate = pitch;
+            double anchorPos;
+            bool formulaOk = false;
+            double judgedPos = double.NaN;
+            try
             {
-                _dspTimeRef = dspSnap;
-                _songPosRef = currentSongPos;
-                _lastPitch = pitch;
+                if (global::AsyncInputManager.offsetTickUpdated)
+                {
+                    double dspNow = (PreciseNow.LocalTicks() - (long)global::AsyncInputManager.offsetTick) / 1e7;
+                    judgedPos = (dspNow - conductor.dspTimeSong - (double)scrConductor.calibration_i)
+                                * pitch - conductor.addoffset;
+                    formulaOk = Math.Abs(judgedPos - currentSongPos) <= 0.03;
+                }
+            }
+            catch { }
+
+            if (formulaOk)
+            {
+                if (!_formulaEngaged)
+                {
+                    _formulaEngaged = true;
+                    Main.Mod?.Logger.Log("[Macro] 判定公式基线已接管（无需击中即对齐判定）");
+                }
+                anchorPos = judgedPos;
+                _slewSeeded = false;   // 公式接管时清除兜底低通状态
             }
             else
             {
-                // 慢速锁相：仅调 _songPosRef，每帧修正 error * K，跳变 < 0.1ms
-                double projected = _songPosRef + (dspSnap - _dspTimeRef) * pitch;
-                double error = currentSongPos - projected;
-                const double kCorrection = 0.002;
-                _songPosRef += error * kCorrection;
+                // minusi 兜底：有界低通锁相（音频 dspTime 是 ~10-21ms 阶梯波）
+                if (!_slewSeeded)
+                {
+                    _songPosSm = currentSongPos;
+                    _smRefTick = qpcSnap;
+                    _smPitch = pitch;
+                    _slewSeeded = true;
+                }
+                double projected = _songPosSm + ElapsedSec(_smRefTick, qpcSnap) * _smPitch;
+                double err = currentSongPos - projected;
+                if (Math.Abs(err) > 0.05)
+                    _songPosSm = currentSongPos;   // 跳变（暂停恢复等）
+                else
+                {
+                    double adj = err * 0.15;
+                    if (adj > 0.001) adj = 0.001;
+                    else if (adj < -0.001) adj = -0.001;
+                    _songPosSm += adj;
+                }
+                _smRefTick = qpcSnap;
+                _smPitch = pitch;
+                anchorPos = _songPosSm;
             }
+
+            // 方案7：闭环校准步进（判定误差 → 自动偏移）
+            StepAutoCalibration();
 
             var anchor = ReferenceEquals(_currentAnchor, _anchorA) ? _anchorB : _anchorA;
 
-            anchor.songPosRef = _songPosRef;
-            anchor.dspTimeRef = _dspTimeRef;
-            anchor.dspSnapshot = dspSnap;
+            anchor.songPosRef = anchorPos;
             anchor.qpcSnapshot = qpcSnap;
-            anchor.pitch = pitch;
-            anchor.timeOffset = settings.TimeOffset * 0.001;
+            anchor.rate = rate;
+            anchor.timeOffset = (settings.TimeOffset + _autoOffsetMs) * 0.001;
             anchor.simulateKeyPress = settings.SimulateKeyPress;
 
             if (anchor.staticVersion != _staticAnchorVersion)
@@ -298,7 +521,7 @@ namespace ADOFAIMacro.Macro
             if (!_workerStarted) { _workerStarted = true; _startSignal.Release(); }
 
 #if DEBUG
-            Log($"[Macro-Main] ANCHOR dspRef={_dspTimeRef:F6} songRef={_songPosRef:F6} dspSnap={dspSnap:F6} pitch={pitch:F4} qpcSnap={qpcSnap} lastFloor={lastFloor}");
+            Log($"[Macro-Main] ANCHOR posRef={anchorPos:F6} rate={rate:F4} qpcSnap={qpcSnap} lastFloor={lastFloor} judgedAligned={anchorPos != currentSongPos}");
             _debugWorkerInitLogged = false;
 #endif
 
@@ -317,6 +540,33 @@ namespace ADOFAIMacro.Macro
                     else if (Input.GetKeyDown(KeyCode.RightArrow)) Main.Settings.TimeOffset += Main.Settings.AdjustStep;
                 }
             }
+        }
+
+        // ─────────────────────────────────────────────
+        //  击发精度统计（Release 可见的低频诊断日志）
+        //  lateSec = 触发时刻 audioNow − triggerAt，恒 ≥0，衡量调度精度
+        // ─────────────────────────────────────────────
+        private static double _fireErrSum;
+        private static double _fireErrMax;
+        private static int _fireCount;
+        private static int _fireStatLastMs;
+
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        private static void RecordFireError(double lateSec)
+        {
+            _fireErrSum += lateSec;
+            if (lateSec > _fireErrMax) _fireErrMax = lateSec;
+            _fireCount++;
+        }
+
+        private static void FlushFireStats()
+        {
+            if (_fireCount == 0) return;
+            int now = Environment.TickCount;
+            if (unchecked(now - _fireStatLastMs) < 3000) return;
+            _fireStatLastMs = now;
+            Main.Mod?.Logger.Log($"[Macro-Diag] 击发 {_fireCount} 次 | 平均迟发 {_fireErrSum / _fireCount * 1000.0:F3}ms | 最大 {_fireErrMax * 1000.0:F3}ms");
+            _fireErrSum = 0; _fireErrMax = 0; _fireCount = 0;
         }
 
         // ═══════════════════════════════════════════════════════════════
@@ -356,16 +606,14 @@ namespace ADOFAIMacro.Macro
                     int evCount = anchor.hitEventCount;
                     bool simulateKey = anchor.simulateKeyPress;
                     double timeOffset = anchor.timeOffset;
-                    double pitch = anchor.pitch;
+                    double rate = anchor.rate;
                     double songPosRef = anchor.songPosRef;
-                    double dspTimeRef = anchor.dspTimeRef;
-                    double dspSnapshot = anchor.dspSnapshot;
                     long qpcSnapshot = anchor.qpcSnapshot;
 
 #if DEBUG
                     if (!_debugWorkerInitLogged)
                     {
-                        Log($"[Macro-Worker] EXTRACT (init) pitch={pitch:F4} songPosRef={songPosRef:F6} dsp={dspSnapshot:F6}-{dspTimeRef:F6} qpc={qpcSnapshot} evCount={evCount}");
+                        Log($"[Macro-Worker] EXTRACT (init) rate={rate:F4} songPosRef={songPosRef:F6} qpc={qpcSnapshot} evCount={evCount}");
                         _debugWorkerInitLogged = true;
                     }
 #endif
@@ -388,7 +636,8 @@ namespace ADOFAIMacro.Macro
                         bool hp = _cachedHighPrecision;
                         long qpcNow = GetRawTicks();
                         double elapsed = (double)(qpcNow - qpcSnapshot) * (hp ? 1e-7 : perfFreqInv);
-                        double audioNow = songPosRef + (dspSnapshot + elapsed - dspTimeRef) * pitch;
+                        // 方案4：audioNow = 锚点位置 + QPC 真实流逝 × pitch（DSP 估计已退出外推链路）
+                        double audioNow = songPosRef + elapsed * rate;
                         double triggerAt = events[i].TriggerTime + timeOffset;
 
 #if DEBUG
@@ -398,15 +647,24 @@ namespace ADOFAIMacro.Macro
 
                         if (triggerAt > audioNow)
                         {
-                            if (pitch <= 0.0) { Thread.Sleep(1); break; }
-                            double waitSec = (triggerAt - audioNow) / pitch;
+                            if (rate <= 0.0) { Thread.Sleep(1); break; }
+                            double waitSec = (triggerAt - audioNow) / rate;
                             if (waitSec > 0.01) { Thread.Sleep(1); break; } // 远future，睡眠
-                            else if (waitSec > 0.003) Thread.Yield(); // 近future，让出时间片
-                            else Thread.SpinWait(1000); // 极近，自旋等待
+                            else if (waitSec > 0.0015)
+                            {
+                                // 近future（1.5~10ms）：高分辨率定时器睡到目标前 1.5ms，
+                                // 最后 1.5ms 走下面的自旋。原实现在 3~10ms 窗口内
+                                // Thread.Yield() 满核空转（高密度段落每事件最多烧 ~10ms CPU，
+                                // 是高速段 CPU 占用高的主因）。
+                                // 注意：audioNow/triggerAt 的计算未变，只改等待方式。
+                                HighResSleep(waitSec - 0.0015);
+                            }
+                            else Thread.SpinWait(1000); // 极近（≤1.5ms），自旋等待保证微秒级触发
                             continue;
                         }
 
                         ref readonly var ev = ref events[i];
+                        RecordFireError(audioNow - triggerAt);
                         bool enableTechnique = Main.Settings.EnableTechniqueSimulation;
 
                         if (!simulateKey)
@@ -471,15 +729,13 @@ namespace ADOFAIMacro.Macro
                             anchor = fresh;
                             events = anchor.hitEvents!;
                             evCount = anchor.hitEventCount;
-                            dspSnapshot = anchor.dspSnapshot;
                             qpcSnapshot = anchor.qpcSnapshot;
-                            pitch = anchor.pitch;
+                            rate = anchor.rate;
                             songPosRef = anchor.songPosRef;
-                            dspTimeRef = anchor.dspTimeRef;
                             timeOffset = anchor.timeOffset;
                             simulateKey = anchor.simulateKeyPress;
 #if DEBUG
-                            Log($"[Macro-Worker] EXTRACT (refresh) pitch={pitch:F4} songPosRef={songPosRef:F6} dsp={dspSnapshot:F6}-{dspTimeRef:F6} qpc={qpcSnapshot}");
+                            Log($"[Macro-Worker] EXTRACT (refresh) rate={rate:F4} songPosRef={songPosRef:F6} qpc={qpcSnapshot}");
 #endif
                         }
                     }
@@ -495,6 +751,7 @@ namespace ADOFAIMacro.Macro
                         Volatile.Write(ref _workerLastTriggeredFloor, localLastFloor);
                     if (hitCount > 0)
                         Interlocked.Add(ref _workerNeedsHit, hitCount);
+                    FlushFireStats();
                 }
             }
             finally
@@ -562,6 +819,9 @@ namespace ADOFAIMacro.Macro
         {
             if (Main.Settings.BlockInputWhenUnfocused && !IsGameWindowFocused()) return;
 
+            // 虚拟异步键盘：合成事件直喂游戏 keyQueue（零注入抖动，详见 VirtualAsyncInput）
+            if (VirtualAsyncInput.Active && VirtualAsyncInput.Send(keyCode, isDown)) return;
+
             if (_cachedSkyHookMode)
             {
                 int r = AsyncInputManager.DirectPushKey(keyCode, isDown);
@@ -599,17 +859,9 @@ namespace ADOFAIMacro.Macro
             initialized = true;
             _staticAnchorVersion++;
 
-            _dspTimeRef = DSPTimeSimulater.GetDSPTime();
-            long initQpc = GetRawTicks();
-            _songPosRef = conductor!.songposition_minusi;
-            _lastPitch = conductor.song.pitch;
-
-            _anchorA.dspTimeRef = _anchorB.dspTimeRef = _dspTimeRef;
-            _anchorA.songPosRef = _anchorB.songPosRef = _songPosRef;
-            _anchorA.dspSnapshot = _anchorB.dspSnapshot = _dspTimeRef;
-            _anchorA.qpcSnapshot = _anchorB.qpcSnapshot = initQpc;
-
-            int syncFloor = SyncFloor(_songPosRef);
+            // 方案6：锚点每帧由判定公式/采样直接给出，无需播种状态
+            double startPos = conductor!.songposition_minusi;
+            int syncFloor = SyncFloor(startPos);
             Volatile.Write(ref _workerLastTriggeredFloor, syncFloor);
 
             Log("[Macro-Main] 初始化完成");
@@ -1375,6 +1627,20 @@ namespace ADOFAIMacro.Macro
             Volatile.Write(ref _anchorB.validFlag, 0);
             Interlocked.Increment(ref _resetVersion);
 
+            // 闭环校准：测量状态重置（纯单局控制器，无跨局状态）
+            _autoOffsetMs = 0;
+            _judgeErrSum = 0;
+            _judgeErrSqSum = 0;
+            _judgeErrCount = 0;
+
+            // 方案8：关卡结束/重开时释放 NoGCRegion（GC 转到加载期发生），下关重试
+            TryEndNoGC();
+            _noGcBroken = false;
+
+            // 公式基线/低通状态随关卡重置
+            _slewSeeded = false;
+            _formulaEngaged = false;
+
             if (skyHookInitialized) AsyncInputManager.ClearQueue();
             if (controller != null) ApplyHoldBehavior(controller);
         }
@@ -1424,6 +1690,7 @@ namespace ADOFAIMacro.Macro
                 AsyncInputManager.Stop();
                 skyHookInitialized = false;
             }
+            TryEndNoGC(); // 暂停期间释放，避免长时间累积内存
             Log("[Macro-Main] 工作线程已停止");
         }
 
@@ -1459,6 +1726,11 @@ namespace ADOFAIMacro.Macro
         // ─────────────────────────────────────────────
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
         private static long GetRawTicks() => _getTicksImpl();
+
+        // 两个时间戳之间的真实流逝秒（按当前时间源的刻度换算）
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        private static double ElapsedSec(long from, long to)
+            => (double)(to - from) * (_cachedHighPrecision ? 1e-7 : perfFreqInv);
 
         // 切换时间源委托（根据 HighPrecision 设置）
         private static void UpdateTicksDelegate()

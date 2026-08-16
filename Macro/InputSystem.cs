@@ -277,6 +277,9 @@ namespace ADOFAIMacro.Macro
             return SendKeyDirectFunc(keyCode, isDown);
         }
 
+        /// <summary>当前 DLL 是否提供同步直发（旧版 DLL 可能缺失，调用方需回退 PushKeyEvent）。</summary>
+        public static bool HasSendKeyDirect => _isInitialized && SendKeyDirectFunc != null;
+
         public static unsafe int SendKeyCombination(byte[] keys, uint delayMs = 50)
         {
             if (!_isInitialized || SendKeyCombinationFunc == null

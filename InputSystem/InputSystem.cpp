@@ -70,28 +70,33 @@ struct KeyEvent {
 };
 
 // ─────────────────────────────────────────────
-//  无锁环形队列（多生产者单消费者）
+//  环形缓冲区（生产者互斥 + 单消费者）
+//
+//  发布顺序修正：旧实现 CAS 占位后再写槽内数据，
+//  消费者 acquire 读到新 tail 时槽数据可能尚未写完（可见性窗口）。
+//  现在由 producerMutex_ 保证多生产者互斥，先写槽数据、
+//  再 release 发布 tail——消费者 acquire 读到新 tail 时数据必然可见。
+//  队列现为冷路径（C# 宏热路径走 SendKeyDirect 同步直发），
+//  用一把锁换取正确性，性能无关紧要。
 // ─────────────────────────────────────────────
 template<typename T, size_t MaxSize>
 class RingBuffer {
     static_assert((MaxSize& (MaxSize - 1)) == 0, "MaxSize must be power of two");
     T buffer_[MaxSize];
     alignas(64) std::atomic<size_t> head_{ 0 };   // 读索引（消费者独占）
-    alignas(64) std::atomic<size_t> tail_{ 0 };   // 写索引（多生产者 CAS）
+    alignas(64) std::atomic<size_t> tail_{ 0 };   // 写索引（生产者持锁递增）
+    std::mutex producerMutex_;
 
 public:
-    bool push(const T& item, bool& wasEmpty) {
+    bool push(const T& item) {
+        std::lock_guard<std::mutex> lock(producerMutex_);
         size_t t = tail_.load(std::memory_order_relaxed);
-        size_t h;
-        do {
-            h = head_.load(std::memory_order_acquire);
-            if (t - h >= MaxSize)
-                return false;                       // 队列满
-        } while (!tail_.compare_exchange_weak(t, t + 1,
-            std::memory_order_acq_rel, std::memory_order_relaxed));
+        size_t h = head_.load(std::memory_order_acquire);
+        if (t - h >= MaxSize)
+            return false;                       // 队列满
 
         buffer_[t & (MaxSize - 1)] = item;
-        wasEmpty = (t == h);                         // 如果旧 tail 等于 head，说明之前为空
+        tail_.store(t + 1, std::memory_order_release);
         return true;
     }
 
@@ -154,8 +159,9 @@ private:
     std::atomic<int> requestedMode_{ (int)InputMode::Auto };
     std::atomic<InputMode> effectiveMode_{ InputMode::SendInput };   // 解析后的实际模式
 
-    // 按下的键集合
-    std::set<BYTE> pressedKeys_;
+    // 按下的键集合（256 位图，避免 std::set 每次按键事件的堆分配/释放）
+    std::array<bool, 256> pressedKeys_{};
+    int pressedKeyCount_ = 0;
     mutable std::mutex     pressedKeysMutex_;
 
     HMODULE hWin32u_ = nullptr;
@@ -212,19 +218,26 @@ private:
     // ── 按键状态追踪 ──────────────────────────
     void updateKeyState(BYTE keyCode, BOOL isDown) {
         std::lock_guard<std::mutex> lock(pressedKeysMutex_);
-        if (isDown) pressedKeys_.insert(keyCode);
-        else        pressedKeys_.erase(keyCode);
+        if (isDown) {
+            if (!pressedKeys_[keyCode]) { pressedKeys_[keyCode] = true; ++pressedKeyCount_; }
+        }
+        else {
+            if (pressedKeys_[keyCode]) { pressedKeys_[keyCode] = false; --pressedKeyCount_; }
+        }
     }
 
     void releaseAllPressedKeys() {
-        std::set<BYTE> keys;
+        BYTE keys[256];
+        int n = 0;
         {
             std::lock_guard<std::mutex> lock(pressedKeysMutex_);
-            keys = pressedKeys_;
-            pressedKeys_.clear();
+            for (int k = 0; k < 256; ++k)
+                if (pressedKeys_[k]) keys[n++] = static_cast<BYTE>(k);
+            pressedKeys_.fill(false);
+            pressedKeyCount_ = 0;
         }
-        for (BYTE k : keys) {
-            sendKeyCore(k, FALSE);
+        for (int i = 0; i < n; i++) {
+            sendKeyCore(keys[i], FALSE);
             Sleep(5);
         }
     }
@@ -336,8 +349,12 @@ private:
                     std::lock_guard<std::mutex> lock(pressedKeysMutex_);
                     for (size_t i = 0; i < batchCount; ++i) {
                         const auto& e = batch[i];
-                        if (e.isDown) pressedKeys_.insert(e.keyCode);
-                        else          pressedKeys_.erase(e.keyCode);
+                        if (e.isDown) {
+                            if (!pressedKeys_[e.keyCode]) { pressedKeys_[e.keyCode] = true; ++pressedKeyCount_; }
+                        }
+                        else {
+                            if (pressedKeys_[e.keyCode]) { pressedKeys_[e.keyCode] = false; --pressedKeyCount_; }
+                        }
                     }
                 }
 
@@ -387,7 +404,8 @@ public:
         approxQueueSize_ = 0;
         {
             std::lock_guard<std::mutex> lock(pressedKeysMutex_);
-            pressedKeys_.clear();
+            pressedKeys_.fill(false);
+            pressedKeyCount_ = 0;
         }
 
         workerThread_ = std::make_unique<std::thread>(&InputSystem::workerProc, this);
@@ -398,14 +416,16 @@ public:
     int pushKeyEvent(BYTE keyCode, BOOL isDown, DWORD delayMs) {
         if (!running_) return -1;
 
-        bool wasEmpty = false;
-        if (!ringBuffer_.push(KeyEvent(keyCode, isDown, delayMs), wasEmpty))
+        if (!ringBuffer_.push(KeyEvent(keyCode, isDown, delayMs)))
             return -2;   // 队列满
 
         approxQueueSize_.store(ringBuffer_.size(), std::memory_order_relaxed);
 
-        if (wasEmpty) {
-            // 队列由空变为非空，唤醒可能等待的工作线程
+        // 无条件在锁内 notify：旧实现仅 wasEmpty 时唤醒，但 wasEmpty 基于
+        // 可能过期的 head_ —— 消费者刚清空队列正要进入 wait、生产者读到旧
+        // head 误判"非空"而跳过 notify 的窗口里，事件会滞留无人处理。
+        // 队列已是冷路径，每次一把锁 + 一次 notify 的代价无关紧要。
+        {
             std::lock_guard<std::mutex> lock(queueMutex_);
             queueCond_.notify_one();
         }
@@ -514,7 +534,7 @@ public:
 
     int getPressedKeysCount() const {
         std::lock_guard<std::mutex> lock(pressedKeysMutex_);
-        return static_cast<int>(pressedKeys_.size());
+        return pressedKeyCount_;
     }
 };
 

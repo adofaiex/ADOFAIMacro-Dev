@@ -21,6 +21,12 @@ namespace ADOFAIMacro.Macro
         private static bool _autoLoadEnabled = true;
 
         /// <summary>
+        /// 配置状态版本号：加载/保存/删除/关卡切换时递增。
+        /// Settings UI 用它做 GetLevelConfigStatusText 的缓存失效，避免每帧 File.Exists。
+        /// </summary>
+        internal static int CacheVersion { get; private set; }
+
+        /// <summary>
         /// 检测关卡变化并自动加载配置（应在关卡切换时调用，例如 Patches 或 scnGame Load 事件）
         /// </summary>
         public static void CheckAndLoadLevelConfig()
@@ -32,6 +38,7 @@ namespace ADOFAIMacro.Macro
                 // 如果没有关卡路径或文件不存在，不处理
                 if (string.IsNullOrEmpty(levelPath) || !File.Exists(levelPath))
                 {
+                    if (_lastCheckedLevelPath != null) CacheVersion++;
                     _lastCheckedLevelPath = null;
                     return;
                 }
@@ -43,6 +50,7 @@ namespace ADOFAIMacro.Macro
                 }
 
                 _lastCheckedLevelPath = levelPath;
+                CacheVersion++;
 
                 if (_autoLoadEnabled)
                 {
@@ -78,6 +86,7 @@ namespace ADOFAIMacro.Macro
                 if (!File.Exists(configPath))
                 {
                     Macro.Log($"[LevelTechnique] 关卡配置不存在: {configPath}");
+                    CacheVersion++;
                     return;
                 }
 
@@ -89,6 +98,7 @@ namespace ADOFAIMacro.Macro
                     _loadedConfigs[levelPath] = config;
                     Macro.Log($"[LevelTechnique] 已加载关卡配置: {config.name} ({config.techniqueSegments?.Count ?? 0} 个分段)");
                 }
+                CacheVersion++;
             }
             catch (Exception ex)
             {
@@ -211,6 +221,7 @@ namespace ADOFAIMacro.Macro
                 File.WriteAllText(configPath, json);
 
                 _loadedConfigs[levelPath] = profile;
+                CacheVersion++;
                 Macro.Log($"[LevelTechnique] 已保存关卡配置到: {configPath}");
                 return true;
             }
@@ -258,6 +269,7 @@ namespace ADOFAIMacro.Macro
                 {
                     File.Delete(configPath);
                     _loadedConfigs.Remove(levelPath!); // levelPath 已检查过非 null
+                    CacheVersion++;
                     Macro.Log($"[LevelTechnique] 已删除关卡配置: {configPath}");
                     return true;
                 }

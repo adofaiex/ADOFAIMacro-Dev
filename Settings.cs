@@ -106,6 +106,19 @@ namespace ADOFAIMacro
         private List<bool> _segmentExpanded = [];
 
         // ─────────────────────────────────────────────
+        //  OnGUI 缓存（避免每个 GUI 事件重复分配）
+        // ─────────────────────────────────────────────
+        private string[] _tabNames = [];
+        private Action[] _tabDraws = [];
+        private int _tabCount;
+        private readonly string[] _langPairCache = new string[2];
+        private readonly string[] _modePairCache = new string[2];
+        private readonly string[] _handPairCache = new string[2];
+        private string[] _profileNameCache = [];
+        private string _levelStatusTextCache = "";
+        private int _levelStatusVersion = -1;
+
+        // ─────────────────────────────────────────────
         //  基础设置属性
         // ─────────────────────────────────────────────
         public event Action<bool> OnMacroChanged;
@@ -177,6 +190,32 @@ namespace ADOFAIMacro
         {
             get => _skyHookMode;
             set { if (_skyHookMode == value) return; _skyHookMode = value; }
+        }
+
+        // ── 虚拟异步键盘：合成事件直喂游戏 keyQueue（详见 VirtualAsyncInput）──
+        // 需 SkyHookMode + 游戏异步输入开启；不可用时自动回退系统注入
+        private bool _useVirtualAsyncInput = true;
+        public bool UseVirtualAsyncInput
+        {
+            get => _useVirtualAsyncInput;
+            set { if (_useVirtualAsyncInput == value) return; _useVirtualAsyncInput = value; }
+        }
+
+        // ── 游玩期 GC 停顿抑制（方案8）：高密度图消除 GC 尖峰 ──
+        // （当前环境 TryStartNoGCRegion 从未成功过，默认关闭减少变量）
+        private bool _suppressGcPauses = false;
+        public bool SuppressGcPauses
+        {
+            get => _suppressGcPauses;
+            set { if (_suppressGcPauses == value) return; _suppressGcPauses = value; }
+        }
+
+        // ── 判定误差闭环校准（方案7）：实测判定误差反馈自动补偿变速段偏移 ──
+        private bool _autoCalibrateJudgement = true;
+        public bool AutoCalibrateJudgement
+        {
+            get => _autoCalibrateJudgement;
+            set { if (_autoCalibrateJudgement == value) return; _autoCalibrateJudgement = value; }
         }
 
         private (string input, bool focused) _adjustStepState = (string.Empty, false);
@@ -475,38 +514,58 @@ namespace ADOFAIMacro
         // ─────────────────────────────────────────────
         //  OnGUI 主入口
         // ─────────────────────────────────────────────
+        // 页签集合每帧重建，但写入缓存数组（委托由编译器缓存），
+        // 替代原先每次事件的 List + Select + ToArray 分配链
+        private void AddTab(string name, Action draw)
+        {
+            if (_tabCount == _tabNames.Length)
+            {
+                int newSize = _tabNames.Length == 0 ? 8 : _tabNames.Length * 2;
+                Array.Resize(ref _tabNames, newSize);
+                Array.Resize(ref _tabDraws, newSize);
+            }
+            _tabNames[_tabCount] = name;
+            _tabDraws[_tabCount] = draw;
+            _tabCount++;
+        }
+
         public void OnGUI(UnityModManager.ModEntry modEntry)
         {
             UIUtils.InitializeStyles();
 
-            var cards = new List<(string name, Action draw)>();
-            cards.Add((Localization.LocalizationManager.Get("tab.language"), DrawLanguageCard));
-            cards.Add((Localization.LocalizationManager.Get("tab.macro"), DrawMainSwitchCard));
+            _tabCount = 0;
+            AddTab(Localization.LocalizationManager.Get("tab.language"), DrawLanguageCard);
+            AddTab(Localization.LocalizationManager.Get("tab.macro"), DrawMainSwitchCard);
 
             if (Macro)
             {
-                cards.Add((Localization.LocalizationManager.Get("tab.key_settings"), DrawKeySettingsCard));
-                cards.Add((Localization.LocalizationManager.Get("tab.key_filter"), DrawKeyFilterCard));
-                cards.Add((Localization.LocalizationManager.Get("tab.offset_settings"), DrawOffsetSettingsCard));
-                cards.Add((Localization.LocalizationManager.Get("tab.other_settings"), DrawOtherSettingsCard));
+                AddTab(Localization.LocalizationManager.Get("tab.key_settings"), DrawKeySettingsCard);
+                AddTab(Localization.LocalizationManager.Get("tab.key_filter"), DrawKeyFilterCard);
+                AddTab(Localization.LocalizationManager.Get("tab.offset_settings"), DrawOffsetSettingsCard);
+                AddTab(Localization.LocalizationManager.Get("tab.other_settings"), DrawOtherSettingsCard);
 
                 if (SimulateKeyPress)
-                    cards.Add((Localization.LocalizationManager.Get("tab.technique_simulation"), DrawTechniqueSimCard));
+                    AddTab(Localization.LocalizationManager.Get("tab.technique_simulation"), DrawTechniqueSimCard);
             }
 
-            cards.Add((Localization.LocalizationManager.Get("tab.update_log"), DrawUpdateLogCard));
-            cards.Add((Localization.LocalizationManager.Get("tab.author"), DrawAuthorCard));
+            AddTab(Localization.LocalizationManager.Get("tab.update_log"), DrawUpdateLogCard);
+            AddTab(Localization.LocalizationManager.Get("tab.author"), DrawAuthorCard);
 
             if (IsBeta)
-                cards.Add((Localization.LocalizationManager.Get("tab.beta"), DrawBetaCard));
+                AddTab(Localization.LocalizationManager.Get("tab.beta"), DrawBetaCard);
 
-            if (selectedCardIndex >= cards.Count) selectedCardIndex = 0;
+            if (selectedCardIndex >= _tabCount) selectedCardIndex = 0;
+            if (_tabNames.Length != _tabCount)
+            {
+                // 页签数量变化时才收缩（仅在开关切换瞬间发生一次）
+                Array.Resize(ref _tabNames, _tabCount);
+                Array.Resize(ref _tabDraws, _tabCount);
+            }
 
-            string[] names = cards.Select(c => c.name).ToArray();
-            selectedCardIndex = UIUtils.M3SelectionGrid(selectedCardIndex, names, cards.Count, GUILayout.Height(30));
+            selectedCardIndex = UIUtils.M3SelectionGrid(selectedCardIndex, _tabNames, _tabCount, GUILayout.Height(30));
             GUILayout.Space(10);
 
-            if (cards.Count > 0) cards[selectedCardIndex].draw();
+            _tabDraws[selectedCardIndex]();
         }
 
         // ─────────────────────────────────────────────
@@ -519,10 +578,10 @@ namespace ADOFAIMacro
             GUILayout.Space(2);
             GUILayout.BeginHorizontal();
             GUILayout.Label(Localization.LocalizationManager.Get("language.display_language"), UIUtils.LabelStyle, GUILayout.Width(150));
-            string[] langs = [Localization.LocalizationManager.Get("language.chinese"), Localization.LocalizationManager.Get("language.english")];
+            _langPairCache[0] = Localization.LocalizationManager.Get("language.chinese");
+            _langPairCache[1] = Localization.LocalizationManager.Get("language.english");
             int sel = Localization.LocalizationManager.IsChinese ? 0 : 1;
-            int newSel = UIUtils.M3SelectionGrid(sel, langs, 2, GUILayout.Width(200));
-            UnityEngine.Debug.Log($"[DrawLanguageCard] IsChinese={Localization.LocalizationManager.IsChinese}, sel={sel}, newSel={newSel}");
+            int newSel = UIUtils.M3SelectionGrid(sel, _langPairCache, 2, GUILayout.Width(200));
             if (newSel != sel)
             {
                 UnityEngine.Debug.Log($"[DrawLanguageCard] Switching: UseChinese = {newSel == 0}");
@@ -578,6 +637,12 @@ namespace ADOFAIMacro
             GUILayout.Space(2);
             HighPrecisionAsync = UIUtils.M3Switch(HighPrecisionAsync,
                 Localization.LocalizationManager.Get("offset.enable_high_precision_async"));
+            GUILayout.Space(2);
+            AutoCalibrateJudgement = UIUtils.M3Switch(AutoCalibrateJudgement,
+                Localization.LocalizationManager.Get("offset.auto_calibrate"));
+            GUILayout.Space(2);
+            SuppressGcPauses = UIUtils.M3Switch(SuppressGcPauses,
+                Localization.LocalizationManager.Get("other.suppress_gc"));
             GUILayout.EndVertical();
         }
 
@@ -611,6 +676,12 @@ namespace ADOFAIMacro
 
                 if (SkyHookMode)
                 {
+                    GUILayout.Space(2);
+                    bool newVirtual = UIUtils.M3Switch(UseVirtualAsyncInput,
+                        Localization.LocalizationManager.Get("key_settings.virtual_async_input"));
+                    if (newVirtual != UseVirtualAsyncInput) UseVirtualAsyncInput = newVirtual;
+                    GUILayout.Space(2);
+
                     GUILayout.Space(6);
                     Color oc = GUI.color;
                     GUI.color = new Color(0.5f, 0.5f, 0.5f, 0.3f);
@@ -624,9 +695,7 @@ namespace ADOFAIMacro
                     if (InputSystem.IsInitialized)
                     {
                         var actual = InputSystem.GetInputMode();
-                        GUIStyle hintStyle = new(UIUtils.LabelStyle);
-                        hintStyle.normal.textColor = new Color(0.5f, 0.9f, 0.5f, 0.8f);
-                        hintStyle.fontSize = 10;
+                        GUIStyle hintStyle = UIUtils.LabelStyleVariant(0.5f, 0.9f, 0.5f, 0.8f, 10);
                         string actualLabel = GetModeLabel(actual);
                         GUILayout.Label(string.Format(
                             Localization.LocalizationManager.Get("key_settings.mode_indicator"),
@@ -661,10 +730,7 @@ namespace ADOFAIMacro
                     GUILayout.EndHorizontal();
 
                     GUILayout.Space(4);
-                    GUIStyle descStyle = new(UIUtils.LabelStyle);
-                    descStyle.normal.textColor = new Color(0.75f, 0.75f, 0.75f, 0.8f);
-                    descStyle.fontSize = 10;
-                    descStyle.wordWrap = true;
+                    GUIStyle descStyle = UIUtils.LabelStyleVariant(0.75f, 0.75f, 0.75f, 0.8f, 10, wordWrap: true);
                     string descKey = InputMode switch
                     {
                         0 => "key_mode_desc.auto",
@@ -711,16 +777,14 @@ namespace ADOFAIMacro
 
                 GUILayout.BeginHorizontal();
                 GUILayout.Label(Localization.LocalizationManager.Get("filter.filter_mode"), UIUtils.LabelStyle, GUILayout.Width(100));
-                string[] modes = [Localization.LocalizationManager.Get("filter.blacklist_mode"), Localization.LocalizationManager.Get("filter.whitelist_mode")];
-                int newMode = UIUtils.M3SelectionGrid(FilterMode, modes, 2, GUILayout.Width(200));
+                _modePairCache[0] = Localization.LocalizationManager.Get("filter.blacklist_mode");
+                _modePairCache[1] = Localization.LocalizationManager.Get("filter.whitelist_mode");
+                int newMode = UIUtils.M3SelectionGrid(FilterMode, _modePairCache, 2, GUILayout.Width(200));
                 if (newMode != FilterMode) FilterMode = newMode;
                 GUILayout.EndHorizontal();
 
                 GUILayout.Space(8);
-                GUIStyle descStyle = new(UIUtils.LabelStyle);
-                descStyle.normal.textColor = new Color(0.7f, 0.7f, 0.7f, 0.8f);
-                descStyle.fontSize = 11;
-                descStyle.wordWrap = true;
+                GUIStyle descStyle = UIUtils.LabelStyleVariant(0.7f, 0.7f, 0.7f, 0.8f, 11, wordWrap: true);
                 string desc = FilterMode == 0
                     ? Localization.LocalizationManager.Get("filter.blacklist_desc")
                     : Localization.LocalizationManager.Get("filter.whitelist_desc");
@@ -748,8 +812,7 @@ namespace ADOFAIMacro
                 }
                 else
                 {
-                    GUIStyle dis = new(UIUtils.LabelStyle);
-                    dis.normal.textColor = new Color(0.5f, 0.5f, 0.5f, 0.5f);
+                    GUIStyle dis = UIUtils.LabelStyleVariant(0.5f, 0.5f, 0.5f, 0.5f);
                     GUILayout.Label(Localization.LocalizationManager.Get("filter.requires_skyhook"), dis);
                 }
                 GUILayout.EndHorizontal();
@@ -779,10 +842,7 @@ namespace ADOFAIMacro
                 GUILayout.EndHorizontal();
 
                 GUILayout.Space(8);
-                GUIStyle tipStyle = new(UIUtils.LabelStyle);
-                tipStyle.normal.textColor = new Color(0.7f, 0.7f, 0.7f, 0.7f);
-                tipStyle.fontSize = 10;
-                tipStyle.wordWrap = true;
+                GUIStyle tipStyle = UIUtils.LabelStyleVariant(0.7f, 0.7f, 0.7f, 0.7f, 10, wordWrap: true);
                 GUILayout.Label(Localization.LocalizationManager.Get("filter.tip"), tipStyle);
             }
             GUILayout.EndVertical();
@@ -823,25 +883,20 @@ namespace ADOFAIMacro
                 string newDKI = GUILayout.TextField(DeathKeyInput, UIUtils.TextFieldStyle, GUILayout.Width(100));
                 if (newDKI != DeathKeyInput) DeathKeyInput = newDKI;
                 GUILayout.Space(10);
-                GUIStyle codeStyle = new(UIUtils.LabelStyle);
-                codeStyle.normal.textColor = new Color(0.6f, 0.6f, 0.6f, 0.8f);
-                codeStyle.fontSize = 10;
+                GUIStyle codeStyle = UIUtils.LabelStyleVariant(0.6f, 0.6f, 0.6f, 0.8f, 10);
                 GUILayout.Label($"0x{DeathKeyCode:X2}", codeStyle);
                 GUILayout.FlexibleSpace();
                 GUILayout.EndHorizontal();
 
                 GUILayout.Space(4);
                 GUILayout.BeginHorizontal();
-                foreach (string k in new[] { "R", "SPACE", "ENTER", "F2", "ESC" })
+                foreach (string k in _deathKeyQuickSet)
                     if (GUILayout.Button(k, UIUtils.ButtonStyle, GUILayout.ExpandWidth(true)))
                         DeathKeyInput = k;
                 GUILayout.EndHorizontal();
 
                 GUILayout.Space(2);
-                GUIStyle tipStyle = new(UIUtils.LabelStyle);
-                tipStyle.normal.textColor = new Color(0.7f, 0.7f, 0.7f, 0.7f);
-                tipStyle.fontSize = 10;
-                tipStyle.wordWrap = true;
+                GUIStyle tipStyle = UIUtils.LabelStyleVariant(0.7f, 0.7f, 0.7f, 0.7f, 10, wordWrap: true);
                 GUILayout.Label(Localization.LocalizationManager.Get("other.tip_enter_key"), tipStyle);
                 GUILayout.Space(4);
             }
@@ -867,13 +922,12 @@ namespace ADOFAIMacro
         // ─────────────────────────────────────────────
         //  作者卡
         // ─────────────────────────────────────────────
+        private static readonly string[] _deathKeyQuickSet = ["R", "SPACE", "ENTER", "F2", "ESC"];
+
         private void DrawAuthorCard()
         {
             GUILayout.BeginVertical(UIUtils.CardStyle);
-            GUIStyle authorStyle = new(UIUtils.LabelStyle);
-            authorStyle.normal.textColor = new Color(0.8f, 0.8f, 0.8f, 0.8f);
-            authorStyle.richText = true;
-            authorStyle.alignment = TextAnchor.MiddleLeft;
+            GUIStyle authorStyle = UIUtils.LabelStyleVariant(0.8f, 0.8f, 0.8f, 0.8f, richText: true);
 
             GUILayout.BeginHorizontal();
             GUILayout.Label($"👤 {Main.Mod.Info.Author}", authorStyle);
@@ -892,10 +946,7 @@ namespace ADOFAIMacro
             GUI.color = oc;
             GUILayout.Space(4);
 
-            GUIStyle thanksStyle = new(UIUtils.LabelStyle);
-            thanksStyle.normal.textColor = new Color(0.7f, 0.7f, 0.7f, 0.4f);
-            thanksStyle.fontSize = 9;
-            thanksStyle.alignment = TextAnchor.MiddleCenter;
+            GUIStyle thanksStyle = UIUtils.LabelStyleVariant(0.7f, 0.7f, 0.7f, 0.4f, 9, alignment: TextAnchor.MiddleCenter);
             GUILayout.Label(string.Format(Localization.LocalizationManager.Get("author.thanks"), Main.Mod.Info.Id), thanksStyle);
             GUILayout.EndVertical();
         }
@@ -906,18 +957,11 @@ namespace ADOFAIMacro
         private void DrawBetaCard()
         {
             GUILayout.BeginHorizontal();
-            GUIStyle betaStyle = new(UIUtils.LabelStyle);
-            betaStyle.normal.textColor = new Color(1f, 0.5f, 0f, 0.9f);
-            betaStyle.fontSize = 12;
-            betaStyle.fontStyle = FontStyle.Bold;
-            betaStyle.alignment = TextAnchor.MiddleLeft;
-            betaStyle.richText = true;
+            GUIStyle betaStyle = UIUtils.LabelStyleVariant(1f, 0.5f, 0f, 0.9f, 12,
+                richText: true, fontStyle: FontStyle.Bold);
             GUILayout.Label(string.Format(Localization.LocalizationManager.Get("beta.warning_format"), BetaVersion), betaStyle);
 
-            GUIStyle feedbackStyle = new(UIUtils.LabelStyle);
-            feedbackStyle.normal.textColor = new Color(0.5f, 0.5f, 0.5f, 0.7f);
-            feedbackStyle.fontSize = 10;
-            feedbackStyle.alignment = TextAnchor.MiddleRight;
+            GUIStyle feedbackStyle = UIUtils.LabelStyleVariant(0.5f, 0.5f, 0.5f, 0.7f, 10, alignment: TextAnchor.MiddleRight);
             GUILayout.Space(4);
             GUILayout.Label(Localization.LocalizationManager.Get("beta.feedback_message"), feedbackStyle);
             GUILayout.EndHorizontal();
@@ -933,7 +977,7 @@ namespace ADOFAIMacro
             GUILayout.Label(Localization.LocalizationManager.Get("update_log.title"), UIUtils.HeaderStyle);
             GUILayout.Space(4);
             _updateLogScrollPos = GUILayout.BeginScrollView(_updateLogScrollPos, GUILayout.Height(150));
-            GUIStyle logStyle = new(UIUtils.LabelStyle) { wordWrap = true, richText = true };
+            GUIStyle logStyle = UIUtils.LabelStyleVariant(0.88f, 0.88f, 0.9f, 1f, wordWrap: true, richText: true);
             string ver = Main.Mod.Info.Version.Replace('\n', ' ').Replace('\r', ' ');
             GUILayout.Label(string.Format(Localization.LocalizationManager.Get("update_log.content"), ver), logStyle);
             GUILayout.EndScrollView();
@@ -959,8 +1003,7 @@ namespace ADOFAIMacro
 #if DEBUG
             GUILayout.BeginVertical();
             GUILayout.BeginHorizontal();
-            GUIStyle verStyle = new(UIUtils.LabelStyle);
-            verStyle.normal.textColor = new Color(0.3f, 0.6f, 1f, 0.8f);
+            GUIStyle verStyle = UIUtils.LabelStyleVariant(0.3f, 0.6f, 1f, 0.8f);
             string debugStatus = dllLoaded
                 ? LocalizationManager.Get("tech.dll_available")
                 : LocalizationManager.Get("tech.dll_unavailable");
@@ -983,9 +1026,7 @@ namespace ADOFAIMacro
             {
                 GUILayout.BeginHorizontal();
                 GUILayout.Space(20);
-                GUIStyle warnStyle = new(UIUtils.LabelStyle);
-                warnStyle.normal.textColor = new Color(0.8f, 0.5f, 0.5f, 0.8f);
-                warnStyle.fontSize = 10;
+                GUIStyle warnStyle = UIUtils.LabelStyleVariant(0.8f, 0.5f, 0.5f, 0.8f, 10);
                 GUILayout.Label(LocalizationManager.Get("tech.dll_unavailable_notice"), warnStyle);
                 GUILayout.EndHorizontal();
             }
@@ -995,8 +1036,9 @@ namespace ADOFAIMacro
                 ? LocalizationManager.Get("tech.dll_available")
                 : LocalizationManager.Get("tech.dll_unavailable");
             if (!dllLoaded) Main.Settings.EnableTechniqueSimulation = false;
-            GUIStyle statusStyle = new(UIUtils.LabelStyle);
-            statusStyle.normal.textColor = dllLoaded ? new Color(0.3f, 0.8f, 0.3f) : new Color(0.8f, 0.3f, 0.3f);
+            GUIStyle statusStyle = dllLoaded
+                ? UIUtils.LabelStyleVariant(0.3f, 0.8f, 0.3f, 1f)
+                : UIUtils.LabelStyleVariant(0.8f, 0.3f, 0.3f, 1f);
             GUILayout.Label(dllStatus, statusStyle);
 #endif
             GUILayout.EndHorizontal();
@@ -1007,14 +1049,9 @@ namespace ADOFAIMacro
             GUILayout.Label(LocalizationManager.Get("tech.level_config"), UIUtils.LabelStyle);
             GUILayout.Space(2);
 
-            // 显示当前关卡状态
+            // 显示当前关卡状态（结果缓存，见 GetLevelConfigStatusText）
             string levelStatus = GetLevelConfigStatusText();
-            GUIStyle statusStyle1 = new(UIUtils.LabelStyle)
-            {
-                fontSize = 10,
-                richText = true,
-                normal = { textColor = new Color(0.7f, 0.7f, 0.7f, 0.8f) }
-            };
+            GUIStyle statusStyle1 = UIUtils.LabelStyleVariant(0.7f, 0.7f, 0.7f, 0.8f, 10, richText: true);
             GUILayout.Label(levelStatus, statusStyle1);
             GUILayout.Space(4);
 
@@ -1057,12 +1094,7 @@ namespace ADOFAIMacro
             {
                 GUILayout.BeginHorizontal();
                 GUILayout.Space(10);
-                GUIStyle statusMsgStyle = new(UIUtils.LabelStyle)
-                {
-                    fontSize = 9,
-                    richText = true,
-                    normal = { textColor = new Color(0.6f, 0.6f, 0.6f, 0.9f) }
-                };
+                GUIStyle statusMsgStyle = UIUtils.LabelStyleVariant(0.6f, 0.6f, 0.6f, 0.9f, 9, richText: true);
                 GUILayout.Label(_levelConfigStatus, statusMsgStyle);
                 GUILayout.EndHorizontal();
             }
@@ -1091,12 +1123,7 @@ namespace ADOFAIMacro
             if (!dllLoaded)
             {
                 GUILayout.Space(4);
-                GUIStyle warnStyle = new(UIUtils.LabelStyle)
-                {
-                    fontSize = 11,
-                    wordWrap = true,
-                    normal = { textColor = new Color(0.8f, 0.3f, 0.3f, 0.8f) }
-                };
+                GUIStyle warnStyle = UIUtils.LabelStyleVariant(0.8f, 0.3f, 0.3f, 0.8f, 11, wordWrap: true);
                 GUILayout.Label(LocalizationManager.Get("tech.dll_missing_notice"), warnStyle);
                 GUILayout.EndVertical();
                 return;
@@ -1143,9 +1170,12 @@ namespace ADOFAIMacro
 
             GUILayout.BeginHorizontal();
             GUILayout.Label(LocalizationManager.Get("tech.select_profile"), UIUtils.LabelStyle, GUILayout.Width(100));
-            string[] profileNames = _techniqueProfiles.Select(p => p.name).ToArray();
-            int newIdx = UIUtils.M3SelectionGrid(SelectedTechniqueProfileIndex, profileNames,
-                Mathf.Min(profileNames.Length, 4), GUILayout.ExpandWidth(true));
+            if (_profileNameCache.Length != _techniqueProfiles.Count)
+                _profileNameCache = new string[_techniqueProfiles.Count];
+            for (int i = 0; i < _profileNameCache.Length; i++)
+                _profileNameCache[i] = _techniqueProfiles[i].name;
+            int newIdx = UIUtils.M3SelectionGrid(SelectedTechniqueProfileIndex, _profileNameCache,
+                Mathf.Min(_profileNameCache.Length, 4), GUILayout.ExpandWidth(true));
             if (newIdx != SelectedTechniqueProfileIndex) SelectedTechniqueProfileIndex = newIdx;
             GUILayout.EndHorizontal();
             GUILayout.Space(8);
@@ -1153,8 +1183,9 @@ namespace ADOFAIMacro
             // ── 起始手 ─────────────────────────────────────
             GUILayout.BeginHorizontal();
             GUILayout.Label(LocalizationManager.Get("tech.starting_hand"), UIUtils.LabelStyle, GUILayout.Width(140));
-            string[] handOptions = [LocalizationManager.Get("tech.left_hand"), LocalizationManager.Get("tech.right_hand")];
-            int newHand = UIUtils.M3SelectionGrid(TechniqueHandPreference, handOptions, 2, GUILayout.Width(200));
+            _handPairCache[0] = LocalizationManager.Get("tech.left_hand");
+            _handPairCache[1] = LocalizationManager.Get("tech.right_hand");
+            int newHand = UIUtils.M3SelectionGrid(TechniqueHandPreference, _handPairCache, 2, GUILayout.Width(200));
             if (newHand != TechniqueHandPreference)
             {
                 TechniqueHandPreference = newHand;
@@ -1172,12 +1203,7 @@ namespace ADOFAIMacro
                 "F0", 140, 220, 70);
             GUILayout.EndHorizontal();
 
-            GUIStyle tipStyle = new(UIUtils.LabelStyle)
-            {
-                fontSize = 10,
-                wordWrap = true,
-                normal = { textColor = new Color(0.7f, 0.7f, 0.7f, 0.8f) }
-            };
+            GUIStyle tipStyle = UIUtils.LabelStyleVariant(0.7f, 0.7f, 0.7f, 0.8f, 10, wordWrap: true);
             GUILayout.Label(LocalizationManager.Get("tech.bpm_explanation"), tipStyle);
 
             GUILayout.Space(4);
@@ -1189,13 +1215,7 @@ namespace ADOFAIMacro
                 "F2", 200, 240, 60);
             GUILayout.EndHorizontal();
             GUILayout.Space(2);
-            GUIStyle tolTipStyle = new(UIUtils.LabelStyle)
-            {
-                fontSize = 10,
-                wordWrap = true,
-                normal = { textColor = new Color(0.7f, 0.7f, 0.7f, 0.8f) }
-            };
-            GUILayout.Label(LocalizationManager.Get("tech.speed_change_tolerance_desc"), tolTipStyle);
+            GUILayout.Label(LocalizationManager.Get("tech.speed_change_tolerance_desc"), tipStyle);
 
             // ── 变速分段 ─────────────────────────────────────
             DrawTechniqueSegments();
@@ -1203,9 +1223,7 @@ namespace ADOFAIMacro
             GUILayout.Space(8);
 
             // ── 全局左右手按键 ────────────────────────────────
-            string[] handLabels = [LocalizationManager.Get("tech.left_hand"), LocalizationManager.Get("tech.right_hand")];
-
-            GUILayout.Label($"── {handLabels[0]} ──", UIUtils.LabelStyle);
+            GUILayout.Label($"── {_handPairCache[0]} ──", UIUtils.LabelStyle);
             GUILayout.Space(2);
 
             GUILayout.BeginHorizontal();
@@ -1228,7 +1246,7 @@ namespace ADOFAIMacro
 
             GUILayout.Space(6);
 
-            GUILayout.Label($"── {handLabels[1]} ──", UIUtils.LabelStyle);
+            GUILayout.Label($"── {_handPairCache[1]} ──", UIUtils.LabelStyle);
             GUILayout.Space(2);
 
             GUILayout.BeginHorizontal();
@@ -1296,12 +1314,7 @@ namespace ADOFAIMacro
             GUILayout.Space(6);
             GUILayout.Label(LocalizationManager.Get("tech.speed_segments"), UIUtils.HeaderStyle);
 
-            GUIStyle tipStyle = new(UIUtils.LabelStyle)
-            {
-                fontSize = 10,
-                wordWrap = true,
-                normal = { textColor = new Color(0.65f, 0.65f, 0.65f, 0.8f) }
-            };
+            GUIStyle tipStyle = UIUtils.LabelStyleVariant(0.65f, 0.65f, 0.65f, 0.8f, 10, wordWrap: true);
             GUILayout.Label(LocalizationManager.Get("tech.segment_inherit"), tipStyle);
             GUILayout.Space(4);
 
@@ -1428,7 +1441,18 @@ namespace ADOFAIMacro
         // ─────────────────────────────────────────────
         //  关卡特定配置辅助方法
         // ─────────────────────────────────────────────
+        // 结果按 LevelTechniqueManager.CacheVersion 缓存：
+        // 原先每个 GUI 事件都执行 File.Exists + Path 组合（含系统调用），每帧多次
         private string GetLevelConfigStatusText()
+        {
+            if (_levelStatusVersion == LevelTechniqueManager.CacheVersion)
+                return _levelStatusTextCache;
+            _levelStatusVersion = LevelTechniqueManager.CacheVersion;
+            _levelStatusTextCache = BuildLevelConfigStatusText();
+            return _levelStatusTextCache;
+        }
+
+        private string BuildLevelConfigStatusText()
         {
             try
             {

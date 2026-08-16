@@ -16,6 +16,10 @@
     <Deterministic>true</Deterministic>
     <TargetFrameworkProfile />
   </PropertyGroup>
+  <PropertyGroup>
+    <!-- ADOFAI 游戏 Managed 目录（按本机 Steam 安装位置调整） -->
+    <GameManaged>..\..\Program Files (x86)\Steam\steamapps\common\A Dance of Fire and Ice\A Dance of Fire and Ice_Data\Managed</GameManaged>
+  </PropertyGroup>
   <PropertyGroup Condition=" '$(Configuration)|$(Platform)' == 'Debug|AnyCPU' ">
     <DebugSymbols>true</DebugSymbols>
     <DebugType>full</DebugType>
@@ -39,15 +43,15 @@
   </PropertyGroup>
   <ItemGroup>
     <Reference Include="0Harmony">
-      <HintPath>..\..\Program Files\Steam\steamapps\common\A Dance of Fire and Ice\A Dance of Fire and Ice_Data\Managed\UnityModManager\0Harmony.dll</HintPath>
+      <HintPath>$(GameManaged)\UnityModManager\0Harmony.dll</HintPath>
       <Private>True</Private>
     </Reference>
     <Reference Include="Assembly-CSharp">
-      <HintPath>..\..\Program Files\Steam\steamapps\common\A Dance of Fire and Ice\A Dance of Fire and Ice_Data\Managed\Assembly-CSharp.dll</HintPath>
+      <HintPath>$(GameManaged)\Assembly-CSharp.dll</HintPath>
       <Private>True</Private>
     </Reference>
     <Reference Include="Assembly-CSharp-firstpass">
-      <HintPath>..\..\Program Files\Steam\steamapps\common\A Dance of Fire and Ice\A Dance of Fire and Ice_Data\Managed\Assembly-CSharp-firstpass.dll</HintPath>
+      <HintPath>$(GameManaged)\Assembly-CSharp-firstpass.dll</HintPath>
       <Private>True</Private>
     </Reference>
     <Reference Include="Microsoft.Bcl.AsyncInterfaces, Version=10.0.0.3, Culture=neutral, PublicKeyToken=cc7b13ffcd2ddd51, processorArchitecture=MSIL">
@@ -55,11 +59,11 @@
     </Reference>
     <Reference Include="PresentationFramework" />
     <Reference Include="RDTools">
-      <HintPath>..\..\Program Files\Steam\steamapps\common\A Dance of Fire and Ice\A Dance of Fire and Ice_Data\Managed\RDTools.dll</HintPath>
+      <HintPath>$(GameManaged)\RDTools.dll</HintPath>
       <Private>True</Private>
     </Reference>
     <Reference Include="SkyHook.Unity">
-      <HintPath>..\..\Program Files\Steam\steamapps\common\A Dance of Fire and Ice\A Dance of Fire and Ice_Data\Managed\SkyHook.Unity.dll</HintPath>
+      <HintPath>$(GameManaged)\SkyHook.Unity.dll</HintPath>
     </Reference>
     <Reference Include="System">
       <Private>True</Private>
@@ -103,51 +107,51 @@
     </Reference>
     <Reference Include="Unity.TextMeshPro, Version=0.0.0.0, Culture=neutral, processorArchitecture=MSIL">
       <SpecificVersion>False</SpecificVersion>
-      <HintPath>..\..\Program Files\Steam\steamapps\common\A Dance of Fire and Ice\A Dance of Fire and Ice_Data\Managed\Unity.TextMeshPro.dll</HintPath>
+      <HintPath>$(GameManaged)\Unity.TextMeshPro.dll</HintPath>
     </Reference>
     <Reference Include="UnityEngine">
-      <HintPath>..\..\Program Files\Steam\steamapps\common\A Dance of Fire and Ice\A Dance of Fire and Ice_Data\Managed\UnityEngine.dll</HintPath>
+      <HintPath>$(GameManaged)\UnityEngine.dll</HintPath>
       <Private>True</Private>
     </Reference>
     <Reference Include="UnityEngine.AudioModule, Version=0.0.0.0, Culture=neutral, processorArchitecture=MSIL">
       <SpecificVersion>False</SpecificVersion>
-      <HintPath>..\..\Program Files\Steam\steamapps\common\A Dance of Fire and Ice\A Dance of Fire and Ice_Data\Managed\UnityEngine.AudioModule.dll</HintPath>
+      <HintPath>$(GameManaged)\UnityEngine.AudioModule.dll</HintPath>
     </Reference>
     <Reference Include="UnityEngine.CoreModule">
-      <HintPath>..\..\Program Files\Steam\steamapps\common\A Dance of Fire and Ice\A Dance of Fire and Ice_Data\Managed\UnityEngine.CoreModule.dll</HintPath>
+      <HintPath>$(GameManaged)\UnityEngine.CoreModule.dll</HintPath>
       <Private>True</Private>
     </Reference>
     <Reference Include="UnityEngine.IMGUIModule">
-      <HintPath>..\..\Program Files\Steam\steamapps\common\A Dance of Fire and Ice\A Dance of Fire and Ice_Data\Managed\UnityEngine.IMGUIModule.dll</HintPath>
+      <HintPath>$(GameManaged)\UnityEngine.IMGUIModule.dll</HintPath>
       <Private>True</Private>
     </Reference>
     <Reference Include="UnityEngine.InputLegacyModule">
-      <HintPath>..\..\Program Files\Steam\steamapps\common\A Dance of Fire and Ice\A Dance of Fire and Ice_Data\Managed\UnityEngine.InputLegacyModule.dll</HintPath>
+      <HintPath>$(GameManaged)\UnityEngine.InputLegacyModule.dll</HintPath>
       <Private>True</Private>
     </Reference>
     <Reference Include="UnityEngine.JSONSerializeModule, Version=0.0.0.0, Culture=neutral, processorArchitecture=MSIL">
       <SpecificVersion>False</SpecificVersion>
-      <HintPath>..\..\Program Files\Steam\steamapps\common\A Dance of Fire and Ice\A Dance of Fire and Ice_Data\Managed\UnityEngine.JSONSerializeModule.dll</HintPath>
+      <HintPath>$(GameManaged)\UnityEngine.JSONSerializeModule.dll</HintPath>
     </Reference>
     <Reference Include="UnityEngine.TextRenderingModule, Version=0.0.0.0, Culture=neutral, processorArchitecture=MSIL">
       <SpecificVersion>False</SpecificVersion>
-      <HintPath>..\..\Program Files\Steam\steamapps\common\A Dance of Fire and Ice\A Dance of Fire and Ice_Data\Managed\UnityEngine.TextRenderingModule.dll</HintPath>
+      <HintPath>$(GameManaged)\UnityEngine.TextRenderingModule.dll</HintPath>
       <Private>True</Private>
     </Reference>
     <Reference Include="UnityEngine.UI, Version=1.0.0.0, Culture=neutral, processorArchitecture=MSIL">
       <SpecificVersion>False</SpecificVersion>
-      <HintPath>..\..\Program Files\Steam\steamapps\common\A Dance of Fire and Ice\A Dance of Fire and Ice_Data\Managed\UnityEngine.UI.dll</HintPath>
+      <HintPath>$(GameManaged)\UnityEngine.UI.dll</HintPath>
     </Reference>
     <Reference Include="UnityEngine.UIModule, Version=0.0.0.0, Culture=neutral, processorArchitecture=MSIL">
       <SpecificVersion>False</SpecificVersion>
-      <HintPath>..\..\Program Files\Steam\steamapps\common\A Dance of Fire and Ice\A Dance of Fire and Ice_Data\Managed\UnityEngine.UIModule.dll</HintPath>
+      <HintPath>$(GameManaged)\UnityEngine.UIModule.dll</HintPath>
     </Reference>
     <Reference Include="Newtonsoft.Json">
-      <HintPath>..\..\Program Files\Steam\steamapps\common\A Dance of Fire and Ice\A Dance of Fire and Ice_Data\Managed\Newtonsoft.Json.dll</HintPath>
+      <HintPath>$(GameManaged)\Newtonsoft.Json.dll</HintPath>
       <Private>True</Private>
     </Reference>
     <Reference Include="UnityModManager">
-      <HintPath>..\..\Program Files\Steam\steamapps\common\A Dance of Fire and Ice\A Dance of Fire and Ice_Data\Managed\UnityModManager\UnityModManager.dll</HintPath>
+      <HintPath>$(GameManaged)\UnityModManager\UnityModManager.dll</HintPath>
       <Private>True</Private>
     </Reference>
   </ItemGroup>
@@ -157,7 +161,9 @@
     <Compile Include="Macro\InputSystem.cs" />
     <Compile Include="Macro\KeyMap.cs" />
     <Compile Include="Macro\LevelTechniqueManager.cs" />
+    <Compile Include="Macro\PreciseNow.cs" />
     <Compile Include="Macro\TechniqueSimulator.cs" />
+    <Compile Include="Macro\VirtualAsyncInput.cs" />
     <Compile Include="Platform\BaseSelect.cs" />
     <Compile Include="Platform\Linux.cs" />
     <Compile Include="Platform\Windows.cs" />
@@ -222,5 +228,9 @@
     <!-- 主程序 DLL 也复制到 out -->
     <Copy SourceFiles="$(TargetPath)" DestinationFolder="$(_OutDir)" Condition="Exists('$(TargetPath)')" />
     <Copy SourceFiles="$(ProjectDir)Info.json" DestinationFolder="$(_OutDir)" Condition="Exists('$(ProjectDir)Info.json')" />
+    <!-- Localization 与运行时依赖（与 Release 包布局对齐） -->
+    <Copy SourceFiles="$(ProjectDir)Localization\zh-CN.json" DestinationFolder="$(_OutDir)Localization" Condition="Exists('$(ProjectDir)Localization\zh-CN.json')" />
+    <Copy SourceFiles="$(ProjectDir)Localization\en-US.json" DestinationFolder="$(_OutDir)Localization" Condition="Exists('$(ProjectDir)Localization\en-US.json')" />
+    <Copy SourceFiles="$(OutDir)System.Memory.dll" DestinationFolder="$(_OutDir)" Condition="Exists('$(OutDir)System.Memory.dll')" />
   </Target>
 </Project>

@@ -27,7 +27,8 @@ namespace ADOFAIMacro
         private static GUIStyle? _colorPickerLabelStyle;
         private static GUIStyle? _selectionGridStyle;
         private static GUIStyle? _selectionGridElementStyle;
-        private static readonly System.Collections.Generic.Dictionary<string, Texture2D> _textureCache = [];
+        // 键用值元组，避免每次查找都做字符串插值（此缓存每帧命中几十次）
+        private static readonly Dictionary<(int w, int h, float rad, float cr, float cg, float cb, float ca, bool tl, bool tr, bool bl, bool br), Texture2D> _textureCache = [];
 
         public static GUIStyle CardStyle => _cardStyle ?? throw new InvalidOperationException("UI not initialized");
         public static GUIStyle HeaderStyle => _headerStyle ?? throw new InvalidOperationException("UI not initialized");
@@ -141,6 +142,74 @@ namespace ADOFAIMacro
                 margin = new RectOffset(1, 1, 1, 1),
                 padding = new RectOffset(4, 4, 4, 4)
             };
+
+            // 预构建 SelectionGrid 按钮样式矩阵 [选中, 首个, 末个]
+            // （原先每个按钮每帧 new 一个 GUIStyle，页签栏一次 OnGUI 要分配 9+ 个）
+            _selGridStyles = new GUIStyle[2, 2, 2];
+            for (int s = 0; s < 2; s++)
+                for (int f = 0; f < 2; f++)
+                    for (int l = 0; l < 2; l++)
+                        _selGridStyles[s, f, l] = BuildSelGridStyle(s == 1, f == 1, l == 1);
+        }
+
+        // ─────────────────────────────────────────────
+        //  Label 样式缓存：Settings 各卡原先每帧 new GUIStyle(Clone)
+        // ─────────────────────────────────────────────
+        private static readonly Dictionary<(float r, float g, float b, float a, int size, bool wrap, bool rich, int fs, int align), GUIStyle> _labelVariantCache = [];
+
+        public static GUIStyle LabelStyleVariant(float r, float g, float b, float a,
+            int fontSize = 13, bool wordWrap = false, bool richText = false,
+            FontStyle fontStyle = FontStyle.Normal, TextAnchor alignment = TextAnchor.MiddleLeft)
+        {
+            var key = (r, g, b, a, fontSize, wordWrap, richText, (int)fontStyle, (int)alignment);
+            if (_labelVariantCache.TryGetValue(key, out GUIStyle s) && s != null) return s;
+            s = new GUIStyle(LabelStyle)
+            {
+                fontSize = fontSize,
+                wordWrap = wordWrap,
+                richText = richText,
+                fontStyle = fontStyle,
+                alignment = alignment,
+                normal = { textColor = new Color(r, g, b, a) }
+            };
+            _labelVariantCache[key] = s;
+            return s;
+        }
+
+        // ─────────────────────────────────────────────
+        //  SelectionGrid 按钮样式（按 选中/首/末 组合缓存）
+        // ─────────────────────────────────────────────
+        private static GUIStyle[,,]? _selGridStyles;
+
+        private static GUIStyle BuildSelGridStyle(bool isSelected, bool first, bool last)
+        {
+            Color primary = new(0.66f, 0.76f, 1.0f);
+            Color surfaceContainerHigh = new(0.17f, 0.17f, 0.19f);
+            Color onSurfaceVariant = new(0.75f, 0.75f, 0.78f);
+            bool tl = first, tr = last, bl = first, br = last;
+            const float radius = 8;
+
+            GUIStyle style = new(_selectionGridStyle)
+            {
+                fixedHeight = 28,
+                margin = new RectOffset(1, 1, 0, 0),
+                padding = new RectOffset(4, 4, 4, 4)
+            };
+            if (isSelected)
+            {
+                style.normal.background = GetCachedRoundedTex(64, 64, radius, primary, tl, tr, bl, br);
+                style.normal.textColor = Color.black;
+                style.hover.background = GetCachedRoundedTex(64, 64, radius, primary * 1.1f, tl, tr, bl, br);
+                style.hover.textColor = Color.black;
+            }
+            else
+            {
+                style.normal.background = GetCachedRoundedTex(64, 64, radius, surfaceContainerHigh, tl, tr, bl, br);
+                style.normal.textColor = onSurfaceVariant;
+                style.hover.background = GetCachedRoundedTex(64, 64, radius, primary * 0.3f, tl, tr, bl, br);
+                style.hover.textColor = Color.white;
+            }
+            return style;
         }
 
         public static Color ColorPicker(Color color)
@@ -259,7 +328,7 @@ namespace ADOFAIMacro
 
         public static Texture2D GetCachedRoundedTex(int width, int height, float radius, Color col, bool tl = true, bool tr = true, bool bl = true, bool br = true)
         {
-            string key = $"{width}_{height}_{radius}_{col.r}_{col.g}_{col.b}_{col.a}_{tl}{tr}{bl}{br}";
+            var key = (width, height, radius, col.r, col.g, col.b, col.a, tl, tr, bl, br);
             if (_textureCache.TryGetValue(key, out Texture2D tex) && tex != null) return tex;
 
             tex = MakeRoundedTex(width, height, radius, col, tl, tr, bl, br);
@@ -404,18 +473,23 @@ namespace ADOFAIMacro
                 case EventType.Repaint:
                     // 在Repaint阶段绘制所有UI元素
 
+                    // 纹理宽度按 16px 档位量化：纹理本身会被拉伸绘制，
+                    // 不需要精确到像素宽度，避免拖动窗口大小时缓存无限增长
+                    const int radius = 12;
+                    int trackTexW = Math.Max(32, ((int)sliderRect.width + 15) & ~15);
+
                     // 1. 先绘制轨道背景（最底层）
-                    int radius = 12;
                     GUI.color = trackColor;
-                    GUI.DrawTexture(sliderRect, GetCachedRoundedTex((int)sliderRect.width, (int)sliderRect.height, radius, Color.white));
+                    GUI.DrawTexture(sliderRect, GetCachedRoundedTex(trackTexW, 24, radius, Color.white));
 
                     // 2. 再绘制进度条（中间层）
                     float progressWidth = sliderRect.width * normalizedValue;
                     if (progressWidth > 2) // 至少显示一点进度
                     {
                         Rect progressRect = new(sliderRect.x, sliderRect.y, progressWidth, sliderRect.height);
+                        int progTexW = Math.Max(16, ((int)progressWidth + 15) & ~15);
                         GUI.color = progressColor;
-                        GUI.DrawTexture(progressRect, GetCachedRoundedTex((int)progressWidth, (int)sliderRect.height, radius, Color.white));
+                        GUI.DrawTexture(progressRect, GetCachedRoundedTex(progTexW, 24, radius, Color.white));
                     }
 
                     // 3. 最后绘制滑块（最上层）- 移到进度条上面
@@ -570,50 +644,13 @@ namespace ADOFAIMacro
         public static int M3SelectionGrid(int selected, string[] texts, int xCount, params GUILayoutOption[] options)
         {
             int newSelected = selected;
-
-            // 在这里重新定义需要的颜色变量
-            Color primary = new(0.66f, 0.76f, 1.0f);
-            Color surfaceContainerHigh = new(0.17f, 0.17f, 0.19f);
-            Color onSurfaceVariant = new(0.75f, 0.75f, 0.78f);
+            var styles = _selGridStyles!;
 
             GUILayout.BeginHorizontal();
 
             for (int i = 0; i < texts.Length; i++)
             {
-                bool isSelected = (i == selected);
-
-                // 为每个按钮创建样式
-                GUIStyle buttonStyle = new GUIStyle(_selectionGridStyle)
-                {
-                    fixedHeight = 28,
-                    margin = new RectOffset(1, 1, 0, 0),
-                    padding = new RectOffset(4, 4, 4, 4)
-                };
-
-                // 设置圆角
-                float radius = 8;
-                bool tl = (i == 0);
-                bool tr = (i == texts.Length - 1);
-                bool bl = (i == 0);
-                bool br = (i == texts.Length - 1);
-
-                // 使用动态尺寸的纹理，根据实际按钮宽度生成
-                int textureWidth = 64; // 基础宽度
-
-                if (isSelected)
-                {
-                    buttonStyle.normal.background = GetCachedRoundedTex(textureWidth, 64, radius, primary, tl, tr, bl, br);
-                    buttonStyle.normal.textColor = Color.black;
-                    buttonStyle.hover.background = GetCachedRoundedTex(textureWidth, 64, radius, primary * 1.1f, tl, tr, bl, br);
-                    buttonStyle.hover.textColor = Color.black;
-                }
-                else
-                {
-                    buttonStyle.normal.background = GetCachedRoundedTex(textureWidth, 64, radius, surfaceContainerHigh, tl, tr, bl, br);
-                    buttonStyle.normal.textColor = onSurfaceVariant;
-                    buttonStyle.hover.background = GetCachedRoundedTex(textureWidth, 64, radius, primary * 0.3f, tl, tr, bl, br);
-                    buttonStyle.hover.textColor = Color.white;
-                }
+                GUIStyle buttonStyle = styles[selected == i ? 1 : 0, i == 0 ? 1 : 0, i == texts.Length - 1 ? 1 : 0];
 
                 // 让按钮平分宽度
                 if (GUILayout.Button(texts[i], buttonStyle, GUILayout.ExpandWidth(true)))

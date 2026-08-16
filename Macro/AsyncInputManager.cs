@@ -108,24 +108,32 @@ namespace ADOFAIMacro.Macro
         // ══════════════════════════════════════════════════════
         //  直接调用入口（热路径，由 Macro 工作线程调用）
         //
-        //  修复前：工作线程 → EnqueueEvent → ring buffer → ConsumeLoop → PushKeyEvent
-        //          中间 SpinWait 退化 Sleep(1) 引入 0~1ms 不可控抖动
-        //          PushKeyEvent 传 delayMs=0，SkyHookEvent 时间戳被完全丢弃
+        //  真正的同步直发：SendKeyDirect 在调用线程上立即执行注入
+        //  （C++ sendKeyCore + 按键状态更新），零中转。
         //
-        //  修复后：工作线程 → PushKeyEvent（直接，零队列）
-        //          工作线程已精确等待到触发时刻，delayMs=0 语义正确（立刻执行）
-        //          与 SendInput 模式延迟链等长，理论精度一致
+        //  历史坑：这里曾调 PushKeyEvent——那其实是"入队"：事件先进
+        //  C++ 环形队列，再由原生工作线程经条件变量唤醒后取出注入，
+        //  每次事件引入 10µs~2ms 的唤醒抖动。宏工作线程已经精确等待到
+        //  触发时刻，注入必须同步完成，不能再到别的线程绕一圈。
         // ══════════════════════════════════════════════════════
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
         public static int DirectPushKey(byte keyCode, bool isDown)
         {
             if (!_isInitialized) return -1;
 
-            int result = InputSystem.PushKeyEvent(keyCode, isDown, 0);
+            // 首选同步直发（调用线程立即注入，零中转）
+            int result = InputSystem.HasSendKeyDirect
+                ? InputSystem.SendKeyDirect(keyCode, isDown)
+                : -1;
+
+            // 兜底：旧版原生 DLL 没有 SendKeyDirect 导出时走入队路径，
+            // 绝不能静默丢键（否则宏会"整个失效"）
+            if (result != 0)
+                result = InputSystem.PushKeyEvent(keyCode, isDown, 0);
 
             // 统计（非热路径分支，result!=0 极少发生）
             if (result == 0)
-                // 仅消费者自己写 _totalProcessed，无竞争，直接 ++
+                // 仅调用方线程写 _totalProcessed，无竞争，直接 ++
                 _totalProcessed++;
             else
                 Interlocked.Increment(ref _totalDropped);
