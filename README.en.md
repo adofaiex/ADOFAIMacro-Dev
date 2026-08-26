@@ -1,305 +1,275 @@
 # ADOFAIMacro
 
-[![C# 12.0](https://img.shields.io/badge/C%23-12.0-239120?logo=csharp&logoColor=white)](https://dotnet.microsoft.com/zh-cn/languages/csharp)
-[![.NET Framework 4.8.1](https://img.shields.io/badge/.NET%20Framework-4.8.1-512BD4?logo=dotnet&logoColor=white)](https://dotnet.microsoft.com/zh-cn/download/dotnet-framework/net481)
-[![Visual Studio 2022](https://img.shields.io/badge/Visual%20Studio-2022-5C2D91?logo=visualstudio&logoColor=white)](https://visualstudio.microsoft.com/zh-hans/)
-[![License](https://img.shields.io/github/license/adofaiex/ADOFAIMacro-Dev?color=blue)](https://github.com/adofaiex/ADOFAIMacro-Dev/blob/master/LICENSE.txt)
-[![License: GPL-3.0](https://img.shields.io/badge/License-GPL--3.0-blue.svg)](https://github.com/adofaiex/ADOFAIMacro-Dev/blob/master/AsyncInputOptimize-LICENSE.txt)
-[![Downloads](https://img.shields.io/github/downloads/adofaiex/ADOFAIMacro-Dev/total)](https://github.com/adofaiex/ADOFAIMacro-Dev/releases)
+[![License](https://img.shields.io/github/license/adofaiex/ADOFAIMacro?color=blue)](LICENSE.txt)
+[![Downloads](https://img.shields.io/github/downloads/adofaiex/ADOFAIMacro/total)](https://github.com/adofaiex/ADOFAIMacro/releases)
+[![C# 12.0](https://img.shields.io/badge/C%23-12.0-239120?logo=csharp&logoColor=white)](https://learn.microsoft.com/dotnet/csharp/)
+[![.NET Framework 4.8.1](https://img.shields.io/badge/.NET%20Framework-4.8.1-512BD4?logo=dotnet&logoColor=white)](https://dotnet.microsoft.com/download/dotnet-framework)
 
 [中文说明](README.md)
 
-`ADOFAIMacro` is a UnityModManager (UMM) mod for **A Dance of Fire and Ice (ADOFAI)**. It is designed to provide stable, tunable, and filterable automated input workflows, from direct in-game hit triggering to system-level key simulation.
+**ADOFAIMacro** is a UnityModManager mod for **A Dance of Fire and Ice (ADOFAI)**: it parses level floor timestamps and fires keys with microsecond-precision timing from a dedicated high-priority thread. From "direct judge triggering" to "system-level key simulation" to "two-hand technique simulation", it covers everything from fully automated clears to realistic hand-play styles.
+
+> ⚠️ **Two hard rules, up front:**
+> - **Do not modify `Info.json`** — the mod ships with tamper detection; modifying it makes the game quit on enable.
+> - **Incompatible with BaseMacro** — detection causes the game to quit.
 
 ---
 
 ## Table of Contents
 
-- [1. Feature Overview](#1-feature-overview)
-- [2. How Input Modes Work](#2-how-input-modes-work)
-- [3. Installation and Update](#3-installation-and-update)
-- [4. Build Guide (Developers)](#4-build-guide-developers)
-- [5. Settings Reference](#5-settings-reference)
-- [6. Runtime Tuning & Hotkeys](#6-runtime-tuning--hotkeys)
-- [7. Recommended Presets](#7-recommended-presets)
-- [8. Troubleshooting](#8-troubleshooting)
-- [9. Project Structure](#9-project-structure)
-- [10. License](#10-license)
+- [Feature Overview](#feature-overview)
+- [Quick Start](#quick-start)
+- [Trigger Modes & Input Paths](#trigger-modes--input-paths)
+- [Settings Reference](#settings-reference)
+- [Technique Simulation Guide](#technique-simulation-guide)
+- [In-Game Hotkeys](#in-game-hotkeys)
+- [Troubleshooting](#troubleshooting)
+- [Building (Developers)](#building-developers)
+- [Project Structure](#project-structure)
+- [License & Related Projects](#license--related-projects)
 
 ---
 
-## 1. Feature Overview
+## Feature Overview
 
-ADOFAIMacro includes the following core capabilities:
-
-- **Automatic chart triggering**: Parses floor timestamps and sends key events with high-precision timing via a dedicated worker thread.
-- **Trigger modes**:
-  - **Direct hit** (`SimulateKeyPress = false`): Worker thread counts events → main thread calls `controller.Hit()` via `Interlocked.Add`, cross-frame delivery.
-  - **Key simulation** (`SimulateKeyPress = true`): Worker thread calls `SendKey()` directly for OS-level keyboard input.
-- **Macro key modes**:
-  - **Simple rotation** (`EnableTechniqueSimulation = false`): Cycles through `MacroKeys`, with `_pendingKey` overlap prevention.
-  - **Technique simulation** (`EnableTechniqueSimulation = true`): Left/right hand alternation, configurable key assignments and orders, BPM-based piece system, hold handling, same-key overlap correction.
-- **Technique simulation engine**: Core algorithm in native C++ DLL (`TechniqueSimulator.dll`) — hot path has zero managed allocation. C# fallback available in DEBUG mode.
-- **Level-specific technique configs**: Per-level technique parameters (keys, orders, press times, BPM segments) saved as `LevelName.adofaimacro.json`, auto-loaded on entry.
-- **Per-level segment system**: Override keys/orders/press times within floor ranges inside a single level.
-- **Timing offset fine-tuning**: Millisecond-level offset with in-game hotkeys (`Ctrl + Arrow` / `Arrow keys`).
-- **Key filtering system**: Blacklist/whitelist modes, independent sync (`KeyCode` bitmap) and async (VK code array) filtering.
-- **SkyHook async input mode**: Low-level injection paths (`NtUserInjectKeyboard` etc.) for high-frequency / complex scenarios.
-- **Death Key**: Configurable auto-keypress on death (SkyHook mode only).
-- **Multi-language UI**: JSON-based key-value translations (Chinese/English, easily extensible).
-- **Out-of-focus guard**: Skips key sending when window is unfocused without pausing the worker thread.
-- **Double-buffered time anchor**: Lock-free TimeAnchor sync — main thread writes, worker thread reads, zero contention.
+- **Auto triggering**: level timestamps → precision-timed key events; double-buffered time anchors sync the main and worker threads, lock-free with zero waiting.
+- **Four input paths**: direct judge / SendInput / SkyHook low-level injection (NtInject / NtSendInput) / virtual async keyboard direct-feed (bypasses system injection, sub-microsecond jitter).
+- **Technique simulation**: left/right hand alternation, automatic time-slice subdivision above a BPM threshold (multi-finger single-hand streams), configurable keys / orders / press durations, speed segments, per-level configs; the core algorithm runs in a native C++ DLL.
+- **Timing fine-tuning**: ±100 ms offset, adjustable in-game with arrow keys; automatic judge-error calibration (closed-loop, cancels speed-section offsets).
+- **Key filtering**: blacklist / whitelist, independent sync (KeyCode) and async (VK code) filters.
+- **Extras**: auto keypress on death, GC pause suppression during play, out-of-focus guard, English/Chinese UI.
 
 ---
 
-## 2. How Input Modes Work
+## Quick Start
 
-### 2.1 Direct Hit mode (`SimulateKeyPress = false`)
+**Prerequisites**: ADOFAI installed, [UnityModManager](https://www.nexusmods.com/site/mods/21) (≥ 0.27.0).
 
-- Triggers direct game hit logic.
-- Pros: short path, predictable latency.
-- Best for: users who only need macro timing and do not need OS-level key injection.
+1. Download the archive from [Releases](https://github.com/adofaiex/ADOFAIMacro/releases) and install via UMM, or manually extract it into the game's `Mods/ADOFAIMacro/` folder.
+   - The folder should contain: `ADOFAIMacro.dll`, `InputSystem.dll`, `TechniqueSimulator.dll`, and `Localization/` (zh-CN / en-US).
+2. Launch the game, open the UMM mod window, and enable **ADOFAIMacro**.
+3. In the **Macro** tab, check **Enable Macro**.
+4. The defaults (key simulation off = direct judge) will auto-play the level. If hits feel consistently early/late, adjust **Offset (ms)** in the **Offset Settings** tab, or tap <kbd>←</kbd>/<kbd>→</kbd> in-game.
 
-### 2.2 Simulated Key mode (`SimulateKeyPress = true`)
-
-- Converts macro events into system keyboard input.
-- Available paths:
-  - **SendInput** (compatibility-first)
-  - **SkyHook** (lower-level path, often preferred for advanced/high-frequency cases)
-
-### 2.3 SkyHook + `InputMode`
-
-When `SkyHookMode = true`, you can select the lower-layer mode:
-
-- `Auto`: automatically pick the lowest available implementation.
-- `NtUserInjectKeyboard`: deeper injection route.
-- `NtUserSendInput`: lower than standard SendInput.
-- `SendInput`: standard Win32 method (best compatibility).
-
-> Start from `Auto`, then switch mode only if you encounter instability or conflicts.
+That's it. For more, read on.
 
 ---
 
-## 3. Installation and Update
+## Trigger Modes & Input Paths
 
-### 3.1 Requirements
+Three toggles in **Key Settings** combine into four paths:
 
-- **UnityModManager** installed and working.
-- ADOFAI configured to load UMM mods.
+| What you want | Configuration |
+|---|---|
+| Just clear the level, shortest path | Key simulation **off** |
+| Real system keys (visuals, key sounds, third-party tools reading the keyboard) | Key simulation **on** + Use advanced input **off** (SendInput) |
+| High-frequency charts / multi-software setups / SendInput blocked | Key simulation **on** + Use advanced input **on** + Input Mode **Auto** |
+| Maximum sync precision | The row above + **Virtual async keyboard** on (default) |
 
-### 3.2 Installation Steps
+Path details:
 
-1. Build the project and obtain `ADOFAIMacro.dll` (plus required dependencies).
-2. Create or locate `Mods/ADOFAIMacro` in your UMM mods directory.
-3. Copy the following files/folders into that directory:
-   - `ADOFAIMacro.dll`
-   - `Newtonsoft.Json.dll` (if not in game's Managed folder, copy from NuGet package)
-   - `Localization/` folder (contains `zh-CN.json` and `en-US.json`)
-   - Native DLLs (`InputSystem.dll`, `TechniqueSimulator.dll`) if present
-4. Launch the game and enable `ADOFAIMacro` from UMM.
-
-### 3.3 Update Tips
-
-- Back up your old config before replacing files.
-- After updating, verify key options on first launch:
-  - `MacroKeys`
-  - `TimeOffset`
-  - `SkyHookMode` / `InputMode`
-  - `EnableKeyFilter` and filter lists
-
-> This repository includes `InputSystem.dll`, loaded at runtime by `InputSystem.Initialize()`.[InputSystem](https://github.com/2228293026/InputSystem)
+1. **Direct judge** (`SimulateKeyPress = false`): the worker thread counts hits → the main thread calls the game's `Hit()`. Zero system side effects and the most predictable latency, but the game treats it as an automatic hit — no real keypresses are produced.
+2. **SendInput**: standard Win32 injection, best compatibility.
+3. **SkyHook advanced input**: goes through `InputSystem.dll` to lower layers. Input Mode options:
+   - **Auto**: picks the lowest available layer automatically (start here);
+   - **NtInject**: deepest layer, injects into the raw input stream;
+   - **NtSendInput ★**: kernel-boundary injection;
+   - **SendInput**: same as standard Win32.
+4. **Virtual async keyboard**: synthesizes key events and feeds them straight into the game's own input queue (the same entry point as the real keyboard hook), skipping the entire system-injection chain. Timestamps are generated locally with sub-microsecond jitter and no window-focus dependency. When unavailable (unmapped key, layout check failure) it **automatically falls back** to injection — no manual action needed.
 
 ---
 
-## 4. Build Guide (Developers)
+## Settings Reference
 
-This is a **.NET Framework** C# project (`ADOFAIMacro-Dev.csproj`) that references several DLLs from your local ADOFAI installation.
+Organized by UMM panel tab. "Internal name" is the field used in the config file.
 
-### 4.1 Common Dependencies
+### Macro
 
-- `Assembly-CSharp.dll`
-- `UnityEngine.dll`
-- `UnityEngine.CoreModule.dll`
-- `SkyHook.Unity.dll`
-- `Newtonsoft.Json.dll` (required for localization system, get from game Managed folder or NuGet)
+| Panel item | Internal name | Default | Description |
+|---|---|---|---|
+| Enable Macro | `Macro` | off | Master switch. |
 
-> Note: The localization system uses `Newtonsoft.Json` instead of Unity's `JsonUtility` to support `Dictionary<string, string>` deserialization.
+### Key Settings
 
-### 4.2 Local Build Flow
+| Panel item | Internal name | Default | Description |
+|---|---|---|---|
+| Keys (comma separated) | `MacroKeys` | `D,F,J,K` | Key sequence for simple rotation mode. |
+| Key simulation | `SimulateKeyPress` | off | Off = direct judge; on = system key simulation. |
+| Use advanced input | `SkyHookMode` | off | On = SkyHook path; off = SendInput. |
+| Virtual async keyboard | `UseVirtualAsyncInput` | on | See path 4 above; auto-fallback when unavailable. |
+| Mirror virtual keys to system input | `MirrorVirtualKeys` | on | After a successful direct-feed, also injects one real keypress so key-viewer tools can see virtual keys; injection echoes are dropped automatically — no double hits. |
+| Win API Input Mode | `InputMode` | Auto | Auto / NtInject / NtSendInput ★ / SendInput. |
 
-1. Update `HintPath` values in `ADOFAIMacro-Dev.csproj` to match your local ADOFAI path.
-2. Restore NuGet packages if needed (`packages.config` style).
-3. Build `Release` with Visual Studio or MSBuild.
-4. Copy the following outputs into `Mods/ADOFAIMacro` for live verification:
-   - `ADOFAIMacro.dll`
-   - `Newtonsoft.Json.dll` (should copy automatically if referenced correctly)
-   - `Localization/` folder (with `zh-CN.json` and `en-US.json`)
-   - Native DLLs (`InputSystem.dll`, `TechniqueSimulator.dll`) if they exist in output
+### Offset Settings
+
+| Panel item | Internal name | Default | Description |
+|---|---|---|---|
+| Offset (ms) | `TimeOffset` | 0 | Trigger time offset, range −100 ~ 100. |
+| Adjust Step | `AdjustStep` | 1 | Offset change per in-game adjustment, 0.1 ~ 10. |
+| Allow adjustment of delay using left and right keys (in-game) | `EnableArrowTimeAdjust` | on | <kbd>←</kbd>/<kbd>→</kbd> adjust the offset directly. |
+| Allow adjusting step offset using Ctrl and arrow keys (in-game) | `EnableKeyAdjust` | on | <kbd>Ctrl</kbd>+<kbd>←</kbd>/<kbd>→</kbd> adjust the step. |
+| Enable High Precision Time | `HighPrecisionTime` | off | Switches to a more precise clock source. |
+| [Experimental] Enable High Precision Async | `HighPrecisionAsync` | off | Experimental; leave off unless investigating issues. |
+| Auto judge-error calibration | `AutoCalibrateJudgement` | on | Closed loop: compensates the offset from actual judge errors (including speed sections); re-converges every run. |
+
+### Key Filter
+
+| Panel item | Internal name | Default | Description |
+|---|---|---|---|
+| Enable Key Filter | `EnableKeyFilter` | off | Filter master switch. |
+| Filter Mode | `FilterMode` | Blacklist | Blacklist = block listed keys; whitelist = allow only listed keys. |
+| Keys (comma separated) | `FilteredKeys` | `F1,F2,F3,F4` | Sync input filter list. |
+| Async Keys (comma separated) | `FilteredAsyncKeys` | empty | Async input filter (requires advanced input / SkyHook mode). |
+
+### Other Settings
+
+| Panel item | Internal name | Default | Description |
+|---|---|---|---|
+| Suppress GC pauses during play | `SuppressGcPauses` | off | Removes GC-induced error spikes on dense charts (GC happens during loading instead). |
+| Auto-press key on death | `EnableDeathKey` | off | **Advanced input (SkyHook) mode only.** |
+| Delay (seconds) | `DeathKeyDelay` | 5 | Seconds to wait after death, 0.1 ~ 30. |
+| Key | `DeathKeyInput` | `R` | Key pressed on death; accepts names (SPACE, ENTER…) or virtual-key codes (0x52). |
+| The game allows switching to failure mode | `ChangeNoFaillInPlay` | off | Unlock NoFail switching during play. |
+| Switching Judgement is allowed in the game | `ChangeJudementInPlay` | off | Unlock judgement switching during play. |
+| Lock Level Editor | `LockLevelEditor` | off | Prevents accidental edits. |
+| Block key input when window is unfocused | `BlockInputWhenUnfocused` | on | Skip key sending while unfocused (the worker thread keeps running and resumes on focus). |
+
+### Key name format (applies everywhere)
+
+- Names: `A`–`Z`, `0`–`9`, `F1`–`F12`, `SPACE`, `ENTER`, `ESC`, `TAB`, `SHIFT`, `CTRL`, `ALT`, arrows (`UP`/`DOWN`/`LEFT`/`RIGHT`), etc.;
+- Hex virtual-key codes: e.g. `0x41`;
+- Separate multiple keys with commas, e.g. `J,K,L`.
 
 ---
 
-## 5. Settings Reference
+## Technique Simulation Guide
 
-All settings below are available in the UMM panel.
+When enabled (requires **Key simulation**), the macro stops simply rotating the key list and instead simulates two human hands: time is divided into slices, each slice is assigned to one hand, alternating left/right. When event density exceeds the **Speed Threshold (BPM)**, slices are subdivided so one hand plays multiple events in a row — single-hand multi-finger streams.
 
-| Setting | Type / Example | Description |
+### Basic parameters
+
+| Panel item | Default | Description |
 |---|---|---|
-| `Macro` | `true / false` | Master switch for macro logic. |
-| `MacroKeys` | `D,F,J,K` | Comma-separated key sequence for macro output. |
-| `SimulateKeyPress` | `true / false` | Use system key simulation instead of direct hit calls. |
-| `SkyHookMode` | `true / false` | Enable SkyHook path for simulated input. |
-| `InputMode` | `Auto / NtInject / NtSendInput / SendInput` | Input backend selection when SkyHook mode is enabled. |
-| `TimeOffset` | `-100 ~ 100` ms | Trigger timing offset in milliseconds. |
-| `EnableKeyAdjust` | `true / false` | Enable runtime offset/step adjustment with `Ctrl + Arrow`. |
-| `AdjustStep` | `0.1 ~ 10` | Step size for each runtime adjustment. |
-| `EnableArrowTimeAdjust` | `true / false` | Enable Left/Right key adjustment for timing offset. |
-| `HighPrecisionAsync` | `true / false` | Experimental high-precision async behavior. |
-| `EnableDeathKey` | `true / false` | Auto-press a key on death (SkyHook mode required). |
-| `DeathKeyDelay` | `0.1 ~ 30` sec | Delay before death key is fired. |
-| `DeathKeyInput` | `R`, `SPACE`, `0x52` | Death key by key name or virtual key code. |
-| `EnableKeyFilter` | `true / false` | Enable key filtering system. |
-| `FilterMode` | `0 / 1` | `0` = blacklist, `1` = whitelist. |
-| `FilteredKeys` | `F1,F2` | Sync input filter list. |
-| `FilteredAsyncKeys` | `J,K,L` | Async input filter list (typically used with SkyHook). |
+| Enable Technique Simulation (L/R alternation) | off | Master switch (requires Key simulation). |
+| Starting Hand | Right | Which hand plays the first slice. |
+| Global · Speed Threshold (BPM) | 500 | Subdivide slices above this BPM (range 50 ~ 2000). |
+| L/R Keys | `D,F` / `J,K` | Keys available to each hand; presets DF/JK, DS/JK, ASDF/JKL. |
+| L/R Order | empty | See format below; empty = default rotation. |
+| L/R Ratio | `0.8,0.8` | Press-duration ratio (0 ~ 1): how much of the slice a key stays held; hold notes are handled automatically. |
+| Speed Change Tolerance | 0 | Auto-adjusts BPM to align slices with event timing. 0 = off, 0.2 = moderate, 0.5 = aggressive; for charts with continuous speed changes. |
 
-### 5.1 Key String Format
+**Order format**: pipe separates key-count groups, commas separate 1-based indices. Example `1,2 | 1,2 | 1,2,1`: one-key slices alternate keys 1 and 2, three-key slices play 1→2→1. Empty = default order.
 
-- Supports key names: `A-Z`, `0-9`, `F1-F12`, `SPACE`, `ENTER`, `ESC`, `CTRL`, `ALT`, arrows, etc.
-- Supports hex virtual key code format (for example: `0x41`).
-- Separate multiple keys with commas (for example: `J,K,L`).
+### Profiles
 
----
+Save multiple complete technique parameter sets (keys, orders, durations, starting hand, tolerance, segments); create / delete / switch from the panel.
 
-## 6. Runtime Tuning & Hotkeys
+### Speed Segments
 
-Depending on your toggles, you can tune behavior during gameplay:
+Override global settings within a floor range: each segment can set its own **BPM limit** and **L/R keys / orders / ratios** (empty fields inherit global). Hand order resets and cross-segment holds are released at segment boundaries.
 
-- **Ctrl + Left/Right**: adjust offset/step behavior based on `AdjustStep`.
-- **Left/Right**: directly nudge timing offset (`EnableArrowTimeAdjust` required).
+### Level-specific Configs
 
-For reliability, tune on short levels first, then apply the profile to longer/harder charts.
+Each level can have its own config:
+
+- Stored next to the level file, named `LevelName.adofaimacro.json`;
+- Auto-loaded on entry ("Auto-load from level folder", on by default);
+- Load / Save / Delete from the bottom of the panel, with current status display.
+
+Useful for smaller key sets on high-BPM sections, custom orders for specific patterns, or per-level fine-tuning.
+
+### Notes
+
+- **The first time you enter the game you need to die once to calibrate the time** (same note as in the panel).
+- The core algorithm runs in the native `TechniqueSimulator.dll` — make sure it is in `Mods/ADOFAIMacro/`. **Release builds produce no technique output without the DLL** (debug builds fall back to the C# implementation).
 
 ---
 
-## 7. Recommended Presets
+## In-Game Hotkeys
 
-### 7.1 Stable Starter Preset
+| Keys | Action | Condition |
+|---|---|---|
+| <kbd>←</kbd> / <kbd>→</kbd> | Offset ± step | Arrow adjust enabled |
+| <kbd>Ctrl</kbd> + <kbd>←</kbd> / <kbd>→</kbd> | Step ±0.1 | Ctrl adjust enabled |
 
-- `Macro = true`
-- `SimulateKeyPress = false`
-- `TimeOffset = 0` (then fine-tune gradually)
-- `EnableKeyFilter = false` (verify baseline first)
-
-### 7.2 Compatibility-Oriented Preset
-
-- `SimulateKeyPress = true`
-- `SkyHookMode = false`
-- Use `SendInput`
-- Enable key filtering only if you detect conflicts
-
-### 7.3 High-Frequency / Advanced Preset
-
-- `SimulateKeyPress = true`
-- `SkyHookMode = true`
-- Start with `InputMode = Auto`, then manually test alternatives if needed
-- Fine-tune `TimeOffset` and `AdjustStep` incrementally
+Test on short levels first, then move to long / dense charts.
 
 ---
 
-## 8. Troubleshooting
+## Troubleshooting
 
-### Q1: Macro is enabled but nothing happens
+**Q1: Macro enabled but nothing happens**
+Check in order: mod enabled in UMM → Enable Macro checked → key sequence valid (comma-separated) → if "Block key input when window is unfocused" is on, keys are skipped while the game is unfocused (resume by focusing it).
 
-Check in order:
+**Q2: Timing inconsistent, occasional drops**
+Fine-tune the offset with arrow keys (1 ms steps); for high-frequency charts enable advanced input + Auto mode; for dense charts enable GC pause suppression; if still conflicting, enable the key filter to isolate the source.
 
-1. `ADOFAIMacro` is enabled in UMM.
-2. `Macro` toggle is on.
-3. `MacroKeys` format is valid (comma-separated).
-4. If simulation is enabled, test with different `SkyHookMode` / `InputMode` combinations.
+**Q3: Large offsets on speed-change charts**
+Make sure auto judge-error calibration is on (default); under technique simulation, raise Speed Change Tolerance or give the speed section its own BPM limit via segments.
 
-### Q2: Inconsistent triggers or dropped presses
+**Q4: Death key doesn't work**
+Advanced input (SkyHook) mode only — confirm it's on; confirm the death key is enabled and the key name / code is valid; increase the delay if needed.
 
-- Tune `TimeOffset` in small steps (e.g., 1ms increments).
-- Try enabling `SkyHookMode` for high-frequency charts.
-- Enable key filtering to isolate conflicting input sources.
+**Q5: Key-viewer tools can't see macro keys**
+The virtual async keyboard bypasses the system input stream, so third-party tools can't read it — enable "Mirror virtual keys to system input" (on by default).
 
-### Q3: Death key is not firing
+**Q6: Key filter "does nothing"**
+Confirm the filter is enabled; confirm the mode (black/whitelist) matches your intent; under advanced input, don't forget the **async** key list.
 
-- Confirm `SkyHookMode` is enabled.
-- Confirm `EnableDeathKey` is on.
-- Validate `DeathKeyInput` key name/code.
-- Increase `DeathKeyDelay` and retest.
+**Q7: The game quits right after enabling the mod**
+`Info.json` was modified (tamper detection) — restore it; or BaseMacro is installed (mutually exclusive) — remove it.
 
-### Q4: Key filtering seems ineffective
+**Q8: Technique simulation produces nothing / DLL unavailable**
+Place `TechniqueSimulator.dll` in `Mods/ADOFAIMacro/`; Release builds generate no technique events without the DLL.
 
-- Confirm `EnableKeyFilter = true`.
-- Verify `FilterMode` matches your intention (blacklist vs whitelist).
-- In SkyHook scenarios, ensure `FilteredAsyncKeys` is also configured.
+**Q9: Judgement drifts when first entering the game / need to die once?**
+Yes. The first entry requires one death to complete time calibration; after that it's normal.
+
+When filing an issue, please include: game version, mod version, key settings screenshots, whether SkyHook is used and the current input mode, reproduction steps and logs.
 
 ---
 
-## 9. Project Structure
+## Building (Developers)
+
+- Environment: Visual Studio 2022 (or MSBuild), .NET Framework 4.8.1, C# 12.
+- Open `ADOFAIMacro-Dev.csproj` (or `ADOFAIMacro-Dev.slnx`) and point the `HintPath`s at your local ADOFAI install — you need the game's `Assembly-CSharp.dll`, `UnityEngine*.dll`, `SkyHook.Unity.dll`, `UnityModManager.dll`, plus `Newtonsoft.Json.dll` (used by the localization system; get it from the game folder or NuGet).
+- Restore NuGet packages (packages.config style) and build Release.
+- Deploy to `Mods/ADOFAIMacro/`: `ADOFAIMacro.dll` + `Localization/` + `InputSystem.dll` + `TechniqueSimulator.dll`.
+
+---
+
+## Project Structure
 
 ```text
 ADOFAIMacro/
-├─ Main.cs                    # Entry and mod lifecycle
-├─ Settings.cs                # Settings and UMM UI
-├─ UIUtils.cs                 # UI helper components/styles
-├─ ShowText.cs                # Text/overlay helper
-├─ Patches.cs                 # Harmony patch definitions
+├─ Main.cs                      # Entry point: mod lifecycle, DLL loading, tamper detection
+├─ Settings.cs                  # Settings + UMM panel UI
+├─ UIUtils.cs                   # Panel drawing helpers
+├─ ShowText.cs                  # In-game key display overlay
+├─ Patches.cs                   # Harmony patches (input chain, judge-error feedback, etc.)
 ├─ Localization/
-│  ├─ LocalizationManager.cs # Localization manager (JSON loading / protection)
-│  ├─ zh-CN.json             # Simplified Chinese translations
-│  └─ en-US.json             # English translations
+│  ├─ LocalizationManager.cs    # JSON localization (Newtonsoft.Json)
+│  ├─ zh-CN.json / en-US.json
 ├─ Macro/
-│  ├─ Macro.cs               # Core macro triggering logic
-│  ├─ InputSystem.cs         # Input system wrapper (P/Invoke to InputSystem.dll)
-│  ├─ AsyncInputManager.cs   # Async input management
-│  ├─ DSPTimeSimulater.cs    # Timing simulation helper
-│  ├─ SkyHookSystem.cs       # SkyHook-specific handling
-│  ├─ TechniqueSimulator.cs  # Technique simulator wrapper (P/Invoke to TechniqueSimulator.dll)
-│  ├─ LevelTechniqueManager.cs # Level-specific technique configuration manager
-│  └─ KeyMap.cs              # Unified key name to virtual key code mapping
+│  ├─ Macro.cs                  # Core: time anchors, worker scheduling, event generation
+│  ├─ VirtualAsyncInput.cs      # Virtual async keyboard: feeds the game input queue directly
+│  ├─ AsyncInputManager.cs      # SkyHook input management
+│  ├─ InputSystem.cs            # InputSystem.dll P/Invoke wrapper
+│  ├─ TechniqueSimulator.cs     # Technique simulator P/Invoke wrapper
+│  ├─ LevelTechniqueManager.cs  # Level-specific technique configs
+│  ├─ PreciseNow.cs             # Precise local time (same clock domain as the game judge)
+│  ├─ DSPTimeSimulater.cs       # Audio DSP time simulation
+│  ├─ SkyHookSystem.cs          # SkyHook struct definitions
+│  └─ KeyMap.cs                 # Key name → virtual-key code mapping
 └─ Platform/
-   ├─ Windows.cs             # Windows platform (high-res timer)
-   ├─ Linux.cs               # Linux platform
-   └─ BaseSelect.cs          # Platform selection layer
+   ├─ Windows.cs / Linux.cs     # Platform high-resolution timing
+   └─ BaseSelect.cs             # Platform selection
 ```
 
-### 9.1 Level-Specific Technique Configuration
-
-`LevelTechniqueManager` handles saving and loading per-level technique simulation configurations. This allows you to use different hand pattern settings for different charts without manual reconfiguration.
-
-**Features:**
-- **Automatic level detection**: Loads saved configs automatically when entering a level
-- **Config file location**: Same directory as the level file, named `LevelName.adofaimacro.json`
-- **UI Integration**: In the Technique Simulation tab:
-  - View current level config status
-  - Manually load/save/delete level configs
-  - Custom config naming
-  - Auto-load toggle (`LevelConfigAutoLoad`)
-- **Configuration inheritance**: Level configs can override all global parameters (keys, orders, press times, BPM segments, etc.)
-
-**Typical use cases:**
-- Different key layouts for high BPM sections
-- Custom hand pattern orders for specific chart quirks
-- Fine-tuned parameters saved per chart
-
-> Access level config management at the bottom of the "Technique Simulation" settings card.
-
 ---
 
-## 10. License
+## License & Related Projects
 
-- Main project license: `LICENSE.txt`
-- Async input optimization license: `AsyncInputOptimize-LICENSE.txt`
-
----
-
-If you report an issue, include:
-
-- Game version
-- ADOFAIMacro version
-- Relevant settings (screenshot preferred)
-- Whether SkyHook is enabled and current `InputMode`
-- Reproduction steps and logs
+- Project license: [LICENSE.txt](LICENSE.txt)
+- Async input optimization license: [AsyncInputOptimize-LICENSE.txt](AsyncInputOptimize-LICENSE.txt) (GPL-3.0)
+- [InputSystem](https://github.com/2228293026/InputSystem) — low-level input injection library (`InputSystem.dll`, loaded at runtime)

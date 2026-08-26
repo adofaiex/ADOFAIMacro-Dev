@@ -1,316 +1,275 @@
 # ADOFAIMacro
 
-[![C# 12.0](https://img.shields.io/badge/C%23-12.0-239120?logo=csharp&logoColor=white)](https://dotnet.microsoft.com/zh-cn/languages/csharp)
-[![.NET Framework 4.8.1](https://img.shields.io/badge/.NET%20Framework-4.8.1-512BD4?logo=dotnet&logoColor=white)](https://dotnet.microsoft.com/zh-cn/download/dotnet-framework/net481)
-[![Visual Studio 2022](https://img.shields.io/badge/Visual%20Studio-2022-5C2D91?logo=visualstudio&logoColor=white)](https://visualstudio.microsoft.com/zh-hans/)
-[![License](https://img.shields.io/github/license/adofaiex/ADOFAIMacro-Dev?color=blue)](https://github.com/adofaiex/ADOFAIMacro-Dev/blob/master/LICENSE.txt)
-[![License: GPL-3.0](https://img.shields.io/badge/License-GPL--3.0-blue.svg)](https://github.com/adofaiex/ADOFAIMacro-Dev/blob/master/AsyncInputOptimize-LICENSE.txt)
-[![Downloads](https://img.shields.io/github/downloads/adofaiex/ADOFAIMacro-Dev/total)](https://github.com/adofaiex/ADOFAIMacro-Dev/releases)
+[![License](https://img.shields.io/github/license/adofaiex/ADOFAIMacro?color=blue)](LICENSE.txt)
+[![Downloads](https://img.shields.io/github/downloads/adofaiex/ADOFAIMacro/total)](https://github.com/adofaiex/ADOFAIMacro/releases)
+[![C# 12.0](https://img.shields.io/badge/C%23-12.0-239120?logo=csharp&logoColor=white)](https://learn.microsoft.com/dotnet/csharp/)
+[![.NET Framework 4.8.1](https://img.shields.io/badge/.NET%20Framework-4.8.1-512BD4?logo=dotnet&logoColor=white)](https://dotnet.microsoft.com/download/dotnet-framework)
 
 [English README](README.en.md)
 
-`ADOFAIMacro` 是一个用于 **A Dance of Fire and Ice (ADOFAI)** 的 UnityModManager（UMM）模组，核心目标是提供更稳定、可调、可过滤的自动输入能力，覆盖从”直接判定触发”到”系统级按键模拟”的多种使用场景。
+**ADOFAIMacro** 是《A Dance of Fire and Ice》(ADOFAI) 的 UnityModManager 模组：解析谱面地板时间戳，由独立高优先级线程微秒级定时发送按键。从"直接判定触发"到"系统级按键模拟"再到"左右手手法模拟"，覆盖纯自动过谱到拟真手法的各种场景。
+
+> ⚠️ **两条红线，先说清楚：**
+> - **不要修改 `Info.json`** —— 模组带防篡改检测，改动后启用时会直接退出游戏。
+> - **与 BaseMacro 不兼容** —— 检测到会直接退出游戏。
 
 ---
 
 ## 目录
 
-- [1. 功能简介](#1-功能简介)
-- [2. 工作模式说明](#2-工作模式说明)
-- [3. 安装与更新](#3-安装与更新)
-- [4. 构建说明（开发者）](#4-构建说明开发者)
-- [5. 设置项详细说明](#5-设置项详细说明)
-- [6. 运行时快捷键与调参](#6-运行时快捷键与调参)
-- [7. 推荐配置](#7-推荐配置)
-- [8. 常见问题与排查](#8-常见问题与排查)
-- [9. 项目结构概览](#9-项目结构概览)
-- [10. 许可证](#10-许可证)
+- [功能一览](#功能一览)
+- [快速上手](#快速上手)
+- [触发模式与输入链路](#触发模式与输入链路)
+- [设置速查](#设置速查)
+- [手法模拟指南](#手法模拟指南)
+- [游戏内快捷键](#游戏内快捷键)
+- [常见问题](#常见问题)
+- [构建（开发者）](#构建开发者)
+- [项目结构](#项目结构)
+- [许可证与相关项目](#许可证与相关项目)
 
 ---
 
-## 1. 功能简介
+## 功能一览
 
-ADOFAIMacro 提供以下核心能力：
-
-- **自动触发**：解析谱面地板时间戳，工作线程高精度定时发送按键。
-- **触发模式**：
-  - **判定触发**（`SimulateKeyPress = false`）：工作线程计数 → 主线程 `controller.Hit()`，跨帧传递。
-  - **按键模拟**（`SimulateKeyPress = true`）：工作线程直接调用 `SendKey()` 模拟系统级按键输入。
-- **宏按键模式**：
-  - **简单轮转**（`EnableTechniqueSimulation = false`）：`MacroKeys` 列表循环，附带 `_pendingKey` 防重叠。
-  - **手法模拟**（`EnableTechniqueSimulation = true`）：左右手交替、可配置按键与顺序、BPM 分片、长按处理、同键修正。
-- **手法模拟引擎**：C++ 原生 DLL（`TechniqueSimulator.dll`）实现核心分片与事件生成算法，热路径无托管分配；DEBUG 模式下提供 C# 回退。
-- **关卡特定手法配置**：为不同关卡保存独立的手法参数（按键、顺序、按压时长、BPM 分段等），进入自动加载。
-- **手法配置分段系统**：支持在单关卡的 floor 区间内覆盖按键/顺序/时长设置。
-- **时间偏移微调**：毫秒级偏移设置，游戏中 `Ctrl + 左右键` / `左右键` 实时调参。
-- **按键过滤系统**：黑白名单模式，同步（`KeyCode` 位图）与异步（VK 码数组）独立过滤。
-- **SkyHook 异步输入模式**：`NtUserInjectKeyboard` 等底层注入路径，适合高频/复杂环境。
-- **死亡后自动按键（Death Key）**：可配置死亡后按键与触发延迟，仅 SkyHook 模式生效。
-- **多语言 UI 系统**：JSON 键值翻译，支持中文/English，易扩展。
-- **窗口失焦拦截**：失焦时跳过按键发送，工作线程不暂停。
-- **双缓冲时间锚点**：无锁读写 TimeAnchor，主线程写 / 工作线程读的零等待同步。
+- **自动触发**：谱面时间戳 → 高精度定时按键；双缓冲时间锚点同步主线程与工作线程，无锁零等待。
+- **四种输入路径**：直接判定 / SendInput / SkyHook 底层注入（NtInject / NtSendInput）/ 虚拟异步键盘直喂（跳过系统注入，亚微秒抖动）。
+- **手法模拟**：左右手交替、BPM 阈值自动细分时间片（单手多指连打）、可配置按键 / 顺序 / 按压时长、变速分段覆盖、每关独立配置；核心算法在 C++ 原生 DLL 中运行。
+- **时间微调**：±100 ms 偏移，游戏内方向键实时调节；判定误差自动校准（闭环，自动消除变速段偏移）。
+- **按键过滤**：黑 / 白名单，同步（KeyCode）与异步（VK 码）独立过滤。
+- **其他**：死亡后自动按键、游玩期 GC 停顿抑制、窗口失焦拦截、中英双语 UI。
 
 ---
 
-## 2. 工作模式说明
+## 快速上手
 
-### 2.1 直接 Hit 模式（`SimulateKeyPress = false`）
+**前置**：已安装 ADOFAI 和 [UnityModManager](https://www.nexusmods.com/site/mods/21)（≥ 0.27.0）。
 
-- 宏触发时直接命中游戏逻辑。
-- 优点：链路短、延迟可控。
-- 适合：纯宏判定场景、不依赖系统按键注入的用户。
+1. 从 [Releases](https://github.com/adofaiex/ADOFAIMacro/releases) 下载压缩包，用 UMM 安装；或手动解压到游戏的 `Mods/ADOFAIMacro/` 目录。
+   - 目录内应包含：`ADOFAIMacro.dll`、`InputSystem.dll`、`TechniqueSimulator.dll`、`Localization/`（zh-CN / en-US）。
+2. 启动游戏，打开 UMM 模组窗口，启用 **ADOFAIMacro**。
+3. 「宏」选项卡 → 勾选 **启用宏**。
+4. 默认配置（按键模拟关闭 = 直接判定）即可自动过谱；判定整体偏早/偏晚时，到「延迟设置」调整 **延迟 (ms)**，或游戏内按 <kbd>←</kbd>/<kbd>→</kbd> 微调。
 
-### 2.2 按键模拟模式（`SimulateKeyPress = true`）
-
-- 将宏触发转换为系统层按键输入。
-- 可选：
-  - **SendInput 路径**（兼容性优先）
-  - **SkyHook 路径**（更偏底层、适合复杂/高频环境）
-
-### 2.3 SkyHook + InputMode
-
-当 `SkyHookMode = true` 时，可进一步选择输入模式：
-
-- `Auto`：自动选择可用的更低层实现。
-- `NtUserInjectKeyboard`：更低层注入路径。
-- `NtUserSendInput`：介于底层注入与标准 SendInput 之间的路径。
-- `SendInput`：标准 Win32 方式，兼容性最好。
-
-> 建议从 `Auto` 开始，遇到冲突或异常时再逐项切换测试。
+就这么多。更多玩法往下看。
 
 ---
 
-## 3. 安装与更新
+## 触发模式与输入链路
 
-### 3.1 前置条件
+「按键设置」中的三个开关组合出四条链路，按需选择：
 
-- 已安装并可正常运行 **UnityModManager**。
-- ADOFAI 可通过 UMM 加载模组。
+| 你想要什么 | 配置 |
+|---|---|
+| 只要能过谱，链路最短 | 按键模拟 **关** |
+| 需要真实系统按键（连打观感、按键音效、第三方工具读键盘） | 按键模拟 **开** + 使用高级输入 **关**（走 SendInput） |
+| 高频谱面 / 多软件并行 / SendInput 被拦截 | 按键模拟 **开** + 使用高级输入 **开** + 输入模式 **自动** |
+| 极致同步精度 | 上一行配置 + **虚拟异步键盘直喂** 开（默认已开） |
 
-### 3.2 安装步骤
+各链路说明：
 
-1. 编译项目得到 `ADOFAIMacro.dll`（及相关依赖）。
-2. 在 UMM 模组目录创建或定位 `Mods/ADOFAIMacro`。
-3. 将以下文件/文件夹复制到该目录：
-   - `ADOFAIMacro.dll`
-   - `Newtonsoft.Json.dll`（如果不在游戏目录中，请从 NuGet 包或游戏 Managed 目录复制）
-   - `Localization/` 文件夹（包含 `zh-CN.json` 和 `en-US.json`）
-   - 原生的 DLL（如 `InputSystem.dll`, `TechniqueSimulator.dll`，如果存在）
-4. 启动游戏，在 UMM 面板中启用 `ADOFAIMacro`。
-
-### 3.3 更新建议
-
-- 更新前备份旧版配置。
-- 覆盖新文件后，首次进游戏建议检查：
-  - `MacroKeys`
-  - `TimeOffset`
-  - `SkyHookMode` / `InputMode`
-  - `EnableKeyFilter` 配置是否符合当前习惯。
-
-> 仓库包含 `InputSystem.dll`，运行时由 `InputSystem.Initialize()` 尝试加载。[InputSystem](https://github.com/2228293026/InputSystem)
+1. **直接判定**（`SimulateKeyPress = false`）：工作线程计数 → 主线程调用游戏 `Hit()`。零系统副作用、延迟最可控，但游戏将其视为自动命中，不产生真实按键。
+2. **SendInput**：标准 Win32 注入，兼容性最好。
+3. **SkyHook 高级输入**：通过 `InputSystem.dll` 走更底层路径。输入模式四选一：
+   - **自动**：优先选择可用的最底层方式（建议从这里开始）；
+   - **NtInject**：最底层，直接注入原始输入流；
+   - **NtSendInput ★**：内核边界注入；
+   - **SendInput**：同标准 Win32。
+4. **虚拟异步键盘直喂**：合成按键事件直接送进游戏自身的输入队列（与真实键盘钩子同一入口），跳过整个系统注入链路，时间戳本地生成、亚微秒抖动，且无窗口焦点依赖。不可用（如按键无映射、布局校验失败）时**自动回退**注入路径，无需手动干预。
 
 ---
 
-## 4. 构建说明（开发者）
+## 设置速查
 
-本项目为 **.NET Framework** C# 项目（`ADOFAIMacro-Dev.csproj`），依赖 ADOFAI 本体目录中的托管 DLL。
+按 UMM 面板的选项卡组织。「内部名」对应配置文件中的字段。
 
-### 4.1 关键依赖
+### 宏
 
-常见引用包括（以本地环境为准）：
+| 面板项 | 内部名 | 默认 | 说明 |
+|---|---|---|---|
+| 启用宏 | `Macro` | 关 | 宏总开关。 |
 
-- `Assembly-CSharp.dll`
-- `UnityEngine.dll`
-- `UnityEngine.CoreModule.dll`
-- `SkyHook.Unity.dll`
-- `Newtonsoft.Json.dll`（本地化系统所需，请从游戏目录或 NuGet 获取）
+### 按键设置
 
-> 注意：本地化系统使用 `Newtonsoft.Json` 而非 Unity 的 `JsonUtility`，以支持 `Dictionary<string, string>` 反序列化。
+| 面板项 | 内部名 | 默认 | 说明 |
+|---|---|---|---|
+| 按键序列 (逗号分隔) | `MacroKeys` | `D,F,J,K` | 简单轮转模式的按键序列。 |
+| 按键模拟 | `SimulateKeyPress` | 关 | 关 = 直接判定；开 = 系统按键模拟。 |
+| 使用高级输入 | `SkyHookMode` | 关 | 开启后走 SkyHook 路径，否则 SendInput。 |
+| 虚拟异步键盘直喂 | `UseVirtualAsyncInput` | 开 | 见上文链路 4；不可用自动回退。 |
+| 虚拟按键同步系统输入 | `MirrorVirtualKeys` | 开 | 直喂成功后同步注入一份真实按键，让按键显示器等第三方工具看见虚拟按键；注入回声自动丢弃，不会双判定。 |
+| Win API 输入模式 | `InputMode` | 自动 | 自动 / NtInject / NtSendInput ★ / SendInput。 |
 
-### 4.2 开发工具下载（编程语言 / 编译器）
+### 延迟设置
 
-- 编程语言：C#（Microsoft Learn）
-  - https://learn.microsoft.com/dotnet/csharp/
-- .NET Framework 开发包下载（用于目标框架构建）
-  - https://dotnet.microsoft.com/download/dotnet-framework
-- 编译器 / IDE：Visual Studio（建议安装 **.NET 桌面开发** 工作负载）
-  - https://visualstudio.microsoft.com/zh-hans/downloads/
+| 面板项 | 内部名 | 默认 | 说明 |
+|---|---|---|---|
+| 延迟 (ms) | `TimeOffset` | 0 | 宏触发时间偏移，范围 −100 ~ 100。 |
+| 调整步长 | `AdjustStep` | 1 | 游戏内方向键每次调整的偏移量，0.1 ~ 10。 |
+| 允许左右键调整延迟(游戏中) | `EnableArrowTimeAdjust` | 开 | 游戏内 <kbd>←</kbd>/<kbd>→</kbd> 直接调偏移。 |
+| 允许Ctrl+左右键调整步长偏移(游戏中) | `EnableKeyAdjust` | 开 | 游戏内 <kbd>Ctrl</kbd>+<kbd>←</kbd>/<kbd>→</kbd> 调步长。 |
+| 启用高精度时间（提高同步精度） | `HighPrecisionTime` | 关 | 切换更精确的时钟源。 |
+| [实验性] 启用高精度异步 | `HighPrecisionAsync` | 关 | 实验特性，不确定有问题再动。 |
+| 判定误差自动校准 | `AutoCalibrateJudgement` | 开 | 闭环：用实际判定误差反馈自动补偿偏移（含变速段），每局自动收敛。 |
 
-### 4.3 本地构建流程
+### 按键过滤
 
-1. 检查 `ADOFAIMacro-Dev.csproj` 的 `HintPath`，指向你本机 ADOFAI 安装目录。
-2. 如需，先执行 NuGet 还原（`packages.config` 方式）。
-3. 使用 Visual Studio 或 MSBuild 构建 `Release`。
-4. 将以下产物复制到 UMM 模组目录（`Mods/ADOFAIMacro/`）进行联调：
-   - `ADOFAIMacro.dll`
-   - `Newtonsoft.Json.dll`
-   - `Localization/` 文件夹（包含 `zh-CN.json` 和 `en-US.json`）
-   - 以及任何需要的原生 DLL（`InputSystem.dll`, `TechniqueSimulator.dll` 等）
+| 面板项 | 内部名 | 默认 | 说明 |
+|---|---|---|---|
+| 启用按键过滤 | `EnableKeyFilter` | 关 | 过滤系统总开关。 |
+| 过滤模式 | `FilterMode` | 黑名单 | 黑名单 = 阻止列表内按键；白名单 = 仅放行列表内按键。 |
+| 按键列表 (逗号分隔) | `FilteredKeys` | `F1,F2,F3,F4` | 同步输入过滤。 |
+| 异步按键列表 (逗号分隔) | `FilteredAsyncKeys` | 空 | 异步输入过滤（需高级输入 / SkyHook 模式）。 |
+
+### 其他选项
+
+| 面板项 | 内部名 | 默认 | 说明 |
+|---|---|---|---|
+| 游玩期抑制GC停顿 | `SuppressGcPauses` | 关 | 高密度图消除 GC 造成的误差尖峰（GC 在加载期集中发生）。 |
+| 死亡后自动按键 | `EnableDeathKey` | 关 | **仅高级输入（SkyHook）模式生效**。 |
+| 延迟秒数 | `DeathKeyDelay` | 5 | 死亡后延迟多少秒按键，0.1 ~ 30。 |
+| 按键 | `DeathKeyInput` | `R` | 死亡后按的键，支持键名（SPACE、ENTER…）或虚拟键码（0x52）。 |
+| 游戏允许切换到失败模式 | `ChangeNoFaillInPlay` | 关 | 游玩中解锁 NoFail 切换。 |
+| 游戏中允许切换判定 | `ChangeJudementInPlay` | 关 | 游玩中解锁判定模式切换。 |
+| 锁定关卡编辑器 | `LockLevelEditor` | 关 | 防误操作。 |
+| 窗口未激活时阻止按键输入 | `BlockInputWhenUnfocused` | 开 | 失焦时不发送按键（工作线程不暂停，回到前台继续）。 |
+
+### 按键书写格式（通用）
+
+- 支持键名：`A`–`Z`、`0`–`9`、`F1`–`F12`、`SPACE`、`ENTER`、`ESC`、`TAB`、`SHIFT`、`CTRL`、`ALT`、方向键（`UP`/`DOWN`/`LEFT`/`RIGHT`）等；
+- 支持十六进制虚拟键码：如 `0x41`；
+- 多个按键用英文逗号分隔，如 `J,K,L`。
 
 ---
 
-## 5. 设置项详细说明
+## 手法模拟指南
 
-以下设置均可在 UMM 面板中调整：
+开启后（需同时开启 **按键模拟**），宏不再简单轮转按键序列，而是模拟真人双手打谱：时间按"片"划分，每片交给一只手，左右交替；当事件密度超过 **速度阈值 (BPM)** 时自动细分时间片，同一只手连续承担多个事件——即单手多指连打。
 
-| 设置项 | 类型 / 示例 | 说明 |
+### 基本参数
+
+| 面板项 | 默认 | 说明 |
 |---|---|---|
-| `Macro` | `true / false` | 宏总开关。关闭后不执行宏逻辑。 |
-| `MacroKeys` | `D,F,J,K` | 宏按键序列，使用英文逗号分隔。 |
-| `SimulateKeyPress` | `true / false` | 是否用系统按键模拟替代直接 Hit。 |
-| `SkyHookMode` | `true / false` | 按键模拟时是否使用 SkyHook 路径。 |
-| `InputMode` | `Auto / NtInject / NtSendInput / SendInput` | SkyHook 模式下的底层输入方式。 |
-| `TimeOffset` | `-100 ~ 100` (ms) | 宏触发时间偏移（毫秒）。 |
-| `EnableKeyAdjust` | `true / false` | 允许在游戏中使用 `Ctrl + 方向键` 调整。 |
-| `AdjustStep` | `0.1 ~ 10` | 每次热键调整时的步长。 |
-| `EnableArrowTimeAdjust` | `true / false` | 允许用左右键快速调整延迟。 |
-| `HighPrecisionAsync` | `true / false` | 实验性高精度异步开关。 |
-| `EnableDeathKey` | `true / false` | 死亡后自动按键（需 SkyHook 模式）。 |
-| `DeathKeyDelay` | `0.1 ~ 30` | 死亡后按键触发延迟（秒）。 |
-| `DeathKeyInput` | `R` / `SPACE` / `0x52` | 死亡后按键，支持名称与虚拟键码。 |
-| `EnableKeyFilter` | `true / false` | 启用按键过滤系统。 |
-| `FilterMode` | `0/1` | 0=黑名单（阻止列表内按键）；1=白名单（仅允许列表内按键）。 |
-| `FilteredKeys` | `F1,F2` | 同步输入过滤列表。 |
-| `FilteredAsyncKeys` | `J,K,L` | 异步输入过滤列表（通常用于 SkyHook）。 |
+| 启用手法模拟（左右手交替） | 关 | 总开关（需按键模拟）。 |
+| 起始手 | 右手 | 第一个时间片交给哪只手。 |
+| 全局·速度阈值 (BPM) | 500 | 超过此 BPM 自动细分时间片（范围 50 ~ 2000）。 |
+| 左/右手按键 | `D,F` / `J,K` | 每只手可用的键，内置预设 DF/JK、DS/JK、ASDF/JKL。 |
+| 左/右手顺序 | 空 | 见下方格式说明，留空 = 默认轮转。 |
+| 左/右手时长 | `0.8,0.8` | 按压时长比例（0 ~ 1），决定按下到松开占时间片的比例；长按（hold）谱面自动处理。 |
+| 变速容差 | 0 | 自动微调 BPM 让时间片对齐事件时序。0 = 关闭，0.2 = 适中，0.5 = 激进；应对连续微变速谱面。 |
 
-### 5.1 按键字符串格式
+**按键顺序格式**：用 `|` 分隔不同按键数的片，逗号分隔 1-based 键序号。例如 `1,2 | 1,2 | 1,2,1`：单键片按第 1、2 键轮转，三键片按 1→2→1。留空 = 默认顺序。
 
-- 支持：`A-Z`、`0-9`、`F1-F12`、`SPACE`、`ENTER`、`ESC`、`CTRL`、`ALT`、方向键等。
-- 也支持十六进制虚拟键码：如 `0x41`。
-- 多个键使用英文逗号分隔，例如：`J,K,L`。
+### 配置（Profiles）
 
----
+可保存多套完整手法参数（按键、顺序、时长、起始手、变速容差、分段），面板上一键新建 / 删除 / 切换。
 
-## 6. 运行时快捷键与调参
+### 变速分段
 
-根据设置开关，游戏中可进行快速调参：
+在某个 floor 区间内覆盖全局设置：每段可独立指定 **BPM 阈值** 与 **左右手按键 / 顺序 / 时长**（留空字段继承全局）。段边界处自动重置手序、释放跨段长按键。
 
-- **Ctrl + 左/右方向键**：按 `AdjustStep` 调整偏移。
-- **左右方向键**：直接微调延迟（受 `EnableArrowTimeAdjust` 控制）。
+### 关卡特定配置
 
-建议先在短图测试，确认稳定后再用于长图或高密谱。
+每张图可以保存独立配置：
+
+- 文件与关卡同目录，命名 `关卡名.adofaimacro.json`；
+- 进关自动加载（「自动从关卡目录加载」开关，默认开）；
+- 面板底部可手动 加载 / 保存到关卡目录 / 删除，并显示当前关卡的配置状态。
+
+适合给高 BPM 段落配更小的按键组合、为特定手癖设计键序、按图精调参数。
+
+### 注意
+
+- **刚进游戏需要先死亡一次来校准时间**（面板同款提示）。
+- 核心算法在原生 `TechniqueSimulator.dll` 中运行，请确保它位于 `Mods/ADOFAIMacro/` 目录。**Release 版本没有 DLL 就没有手法模拟输出**（调试版可回退 C# 实现）。
 
 ---
 
-## 7. 推荐配置
+## 游戏内快捷键
 
-### 7.1 追求稳定（入门）
+| 按键 | 作用 | 生效条件 |
+|---|---|---|
+| <kbd>←</kbd> / <kbd>→</kbd> | 按当前步长增减延迟 | 允许左右键调整延迟 开 |
+| <kbd>Ctrl</kbd> + <kbd>←</kbd> / <kbd>→</kbd> | 步长 ±0.1 | 允许Ctrl+左右键调整步长 开 |
 
-- `Macro = true`
-- `SimulateKeyPress = false`
-- `TimeOffset = 0`（再逐步微调）
-- `EnableKeyFilter = false`（先确认基础可用）
-
-### 7.2 追求兼容（多软件并行）
-
-- `SimulateKeyPress = true`
-- `SkyHookMode = false`
-- 使用 `SendInput` 路径
-- 必要时开启 `EnableKeyFilter` 做冲突隔离
-
-### 7.3 高频场景（进阶）
-
-- `SimulateKeyPress = true`
-- `SkyHookMode = true`
-- `InputMode = Auto` 起步，不稳再手动切换
-- 逐步微调 `TimeOffset` 与 `AdjustStep`
+建议先在短图测试，确认稳定后再上长图 / 高密谱。
 
 ---
 
-## 8. 常见问题与排查
+## 常见问题
 
-### Q1：宏开了但没反应
+**Q1：宏开了但没反应**
+按顺序检查：UMM 中模组已启用 → 启用宏已勾选 → 按键序列格式正确（英文逗号分隔）→ 若开了"窗口未激活时阻止按键输入"，切出游戏时按键会被拦截（回到前台即恢复）。
 
-请按顺序检查：
+**Q2：时准时不准、偶尔漏键**
+先用方向键微调延迟（每次 1 ms）；高频谱面开高级输入 + 输入模式自动；高密度图开"游玩期抑制GC停顿"；仍冲突就开按键过滤隔离干扰源。
 
-1. UMM 中 `ADOFAIMacro` 是否已启用。
-2. `Macro` 是否打开。
-3. `MacroKeys` 格式是否正确（英文逗号分隔）。
-4. 若使用模拟输入，尝试切换 `SkyHookMode` 与 `InputMode`。
+**Q3：变速谱面偏移大**
+确认"判定误差自动校准"开启（默认开）；手法模拟下可调高"变速容差"，或用分段给变速段单独设 BPM 阈值。
 
-### Q2：有时触发、有时漏键
+**Q4：死亡后自动按键不生效**
+仅高级输入（SkyHook）模式生效 → 确认已开启；确认死亡按键已启用、键名 / 键码有效；必要时增大延迟秒数。
 
-- 先调整 `TimeOffset`（例如每次 1ms 微调）。
-- 高频场景尝试开启 `SkyHookMode`。
-- 开启 `EnableKeyFilter`，屏蔽冲突来源。
+**Q5：按键显示器看不到宏按键**
+虚拟异步键盘直喂不经过系统输入流，第三方工具读不到 → 开启"虚拟按键同步系统输入"（默认开）。
 
-### Q3：死亡后按键不生效
+**Q6：按键过滤"没有作用"**
+确认过滤已启用；确认模式（黑 / 白名单）与预期一致；高级输入场景下别忘了设置**异步**按键列表。
 
-- 确认 `SkyHookMode` 已开启。
-- 检查 `EnableDeathKey` 是否启用。
-- 检查 `DeathKeyInput` 是否为有效按键名或键码。
-- 尝试增加 `DeathKeyDelay`。
+**Q7：启用模组后游戏直接退出**
+`Info.json` 被修改过（防篡改检测），还原它；或装了 BaseMacro（互斥），卸载之。
 
-### Q4：按键过滤看起来“没有作用”
+**Q8：手法模拟没输出 / 提示 DLL 不可用**
+把 `TechniqueSimulator.dll` 放到 `Mods/ADOFAIMacro/` 目录；Release 版缺 DLL 时手法模拟无事件输出。
 
-- 确认 `EnableKeyFilter = true`。
-- 确认 `FilterMode` 与你的目标一致（黑名单/白名单）。
-- SkyHook 场景下，别忘了设置 `FilteredAsyncKeys`。
+**Q9：刚进游戏判定飘 / 需要死亡一次？**
+是。首次进入需要死亡一次完成时间校准，之后正常。
+
+提 issue 时建议附上：游戏版本、模组版本、关键配置截图、是否使用 SkyHook 及当前输入模式、复现步骤与日志。
 
 ---
 
-## 9. 项目结构概览
+## 构建（开发者）
+
+- 环境：Visual Studio 2022（或 MSBuild），.NET Framework 4.8.1，C# 12。
+- 打开 `ADOFAIMacro-Dev.csproj`（或 `ADOFAIMacro-Dev.slnx`），确认 `HintPath` 指向你本机 ADOFAI 安装目录——需要游戏自带的 `Assembly-CSharp.dll`、`UnityEngine*.dll`、`SkyHook.Unity.dll`、`UnityModManager.dll`，以及 `Newtonsoft.Json.dll`（本地化系统依赖，从游戏目录或 NuGet 获取）。
+- 还原 NuGet 包（packages.config 方式）后编译 Release。
+- 部署产物到 `Mods/ADOFAIMacro/`：`ADOFAIMacro.dll` + `Localization/` + `InputSystem.dll` + `TechniqueSimulator.dll`。
+
+---
+
+## 项目结构
 
 ```text
 ADOFAIMacro/
-├─ Main.cs                    # 入口与 Mod 生命周期
-├─ Settings.cs                # UI 与设置定义
-├─ UIUtils.cs                 # UMM 面板绘制辅助
-├─ ShowText.cs                # 文本提示相关
-├─ Patches.cs                 # Harmony 补丁逻辑
+├─ Main.cs                      # 入口：模组生命周期、DLL 加载、防篡改检测
+├─ Settings.cs                  # 设置定义 + UMM 面板 UI
+├─ UIUtils.cs                   # 面板绘制辅助
+├─ ShowText.cs                  # 游戏内按键显示覆盖层
+├─ Patches.cs                   # Harmony 补丁（输入链路、判定误差回灌等）
 ├─ Localization/
-│  ├─ LocalizationManager.cs # 本地化管理器（JSON 加载/保护机制）
-│  ├─ zh-CN.json             # 简体中文翻译
-│  └─ en-US.json             # 英文翻译
+│  ├─ LocalizationManager.cs    # JSON 本地化（Newtonsoft.Json）
+│  ├─ zh-CN.json / en-US.json
 ├─ Macro/
-│  ├─ Macro.cs               # 核心宏触发逻辑
-│  ├─ InputSystem.cs         # 输入系统封装（P/Invoke 到 InputSystem.dll）
-│  ├─ AsyncInputManager.cs   # 异步输入管理
-│  ├─ DSPTimeSimulater.cs    # 时间模拟辅助
-│  ├─ SkyHookSystem.cs       # SkyHook 相关处理
-│  ├─ TechniqueSimulator.cs  # 手法模拟器封装（P/Invoke 到 TechniqueSimulator.dll）
-│  ├─ LevelTechniqueManager.cs # 关卡特定手法配置管理器
-│  └─ KeyMap.cs              # 按键名称到虚拟键码的统一映射
+│  ├─ Macro.cs                  # 核心：时间锚点、工作线程调度、事件生成
+│  ├─ VirtualAsyncInput.cs      # 虚拟异步键盘：合成事件直喂游戏输入队列
+│  ├─ AsyncInputManager.cs      # SkyHook 输入管理
+│  ├─ InputSystem.cs            # InputSystem.dll P/Invoke 封装
+│  ├─ TechniqueSimulator.cs     # 手法模拟器 P/Invoke 封装
+│  ├─ LevelTechniqueManager.cs  # 关卡特定手法配置
+│  ├─ PreciseNow.cs             # 精确本地时间（与游戏判定时钟同域）
+│  ├─ DSPTimeSimulater.cs       # 音频 DSP 时间模拟
+│  ├─ SkyHookSystem.cs          # SkyHook 结构体定义
+│  └─ KeyMap.cs                 # 按键名 → 虚拟键码映射
 └─ Platform/
-   ├─ Windows.cs             # Windows 平台实现（高精度计时器）
-   ├─ Linux.cs               # Linux 平台实现
-   └─ BaseSelect.cs          # 平台选择层
+   ├─ Windows.cs / Linux.cs     # 平台高精度计时
+   └─ BaseSelect.cs             # 平台选择
 ```
 
-### 9.1 关卡特定手法配置
-
-`LevelTechniqueManager` 负责为每个关卡保存和加载独立的手法模拟配置。这意味着你可以为不同难度或风格的关卡使用不同的按键分配和参数，无需每次手动调整。
-
-**功能特性：**
-- **自动检测关卡切换**：进入新关卡时自动加载已保存的配置
-- **配置文件位置**：与关卡文件同目录，命名为 `关卡名.adofaimacro.json`
-- **UI 集成**：在设置界面中提供：
-  - 查看当前关卡配置状态
-  - 手动加载/保存/删除关卡配置
-  - 自定义配置名称
-  - 自动加载开关（`LevelConfigAutoLoad`）
-- **配置继承**：关卡配置可覆盖全局配置的所有参数（按键、顺序、按压时长、BPM 分段等）
-
-**使用场景示例：**
-- 为高 BPM 段落配置更小的按键组合
-- 为特定手癖设计特殊的按键顺序
-- 保存针对特定关卡的精细调参
-
-> 在"手法模拟"设置卡底部可管理当前关卡的配置。
-
 ---
 
-## 10. 许可证
+## 许可证与相关项目
 
-- 项目许可证：`LICENSE.txt`
-- 异步输入优化许可：`AsyncInputOptimize-LICENSE.txt`
-
----
-
-如果你在使用中遇到特定机型/系统版本相关问题，建议提交 issue 时附上：
-
-- 游戏版本
-- ADOFAIMacro 版本
-- 关键配置（可截图）
-- 是否使用 SkyHook / 当前 InputMode
-- 复现步骤与日志信息
+- 项目许可证：[LICENSE.txt](LICENSE.txt)
+- 异步输入优化许可：[AsyncInputOptimize-LICENSE.txt](AsyncInputOptimize-LICENSE.txt)（GPL-3.0）
+- [InputSystem](https://github.com/2228293026/InputSystem) —— 底层输入注入库（`InputSystem.dll`，运行时加载）
